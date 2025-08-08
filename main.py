@@ -1,0 +1,632 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+True Agentic Multi-Agent Repair Assistant
+Switches between multi-agent problem solving and conversational guidance
+"""
+
+import os
+import re
+import json
+import asyncio
+from typing import List, Dict, Optional, Any, Literal
+from pathlib import Path
+from enum import Enum
+import time
+
+# Core LangChain imports
+from langchain_ollama import ChatOllama
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain.tools import tool
+
+# LangGraph for multi-agent coordination
+from langgraph.graph import StateGraph, END, START
+from langgraph.graph.message import add_messages
+from typing_extensions import Annotated, TypedDict
+
+# Image processing
+import base64
+from PIL import Image
+
+# Import tools
+from tools import MyFixitDataset, search_repair_manuals, get_repair_steps, search_ifixit_guides, get_ifixit_guide_steps
+
+# Configuration
+class Config:
+    MODEL_NAME = "gemma3:latest"
+    OLLAMA_BASE_URL = "http://localhost:11434"
+    DATASET_PATH = "MyFixit-Dataset/jsons"
+    TEMPERATURE_PLANNING = 0.7  # Higher for creative problem solving
+    TEMPERATURE_INSTRUCTION = 0.2  # Lower for precise instructions
+
+class SystemMode(Enum):
+    """Current system operating mode"""
+    LISTENING = "listening"           # Waiting for user input
+    MULTI_AGENT = "multi_agent"       # Agents collaborating to solve problem
+    CONVERSATIONAL = "conversational" # Guided step-by-step assistance
+    EVALUATING = "evaluating"         # Checking progress and next steps
+
+class RepairContext:
+    """Comprehensive repair context and memory"""
+    
+    def __init__(self):
+        # Core repair info
+        self.device = None
+        self.problem = None
+        self.user_goal = None
+        self.difficulty_level = None
+        
+        # Current state
+        self.mode = SystemMode.LISTENING
+        self.current_manual = None
+        self.current_step = 0
+        self.tools_available = []
+        self.tools_needed = []
+        
+        # Agent coordination
+        self.agent_findings = {}
+        self.next_action_plan = []
+        self.confidence_level = 0.0
+        
+        # Conversation flow
+        self.conversation_history = []
+        self.user_skill_level = "beginner"  # beginner, intermediate, advanced
+        self.safety_concerns = []
+        self.manual_steps = []
+        
+        # Image analysis
+        self.image_data = None
+        self.visual_analysis = None
+    
+    def update_findings(self, agent_name: str, findings: Dict):
+        """Update findings from an agent"""
+        self.agent_findings[agent_name] = {
+            **findings,
+            "timestamp": time.time()
+        }
+    
+    def get_context_for_agent(self, agent_name: str) -> str:
+        """Get relevant context for specific agent"""
+        context = f"Device: {self.device or 'Unknown'}\n"
+        context += f"Problem: {self.problem or 'Unknown'}\n"
+        context += f"User Goal: {self.user_goal or 'Fix the device'}\n"
+        
+        if self.visual_analysis:
+            context += f"Visual Analysis: {self.visual_analysis}\n"
+        
+        # Include relevant findings from other agents
+        if agent_name != "coordinator":
+            for agent, findings in self.agent_findings.items():
+                if agent != agent_name:
+                    context += f"{agent.title()} findings: {findings.get('summary', '')}\n"
+        
+        return context.strip()
+    
+    def should_switch_to_conversational(self) -> bool:
+        """Determine if we should switch to conversational mode"""
+        return (
+            self.current_manual is not None and
+            len(self.agent_findings) >= 2 and  # At least 2 agents have contributed
+            self.confidence_level > 0.7
+        )
+
+# Global context
+repair_context = RepairContext()
+
+# Agent State
+class AgentState(TypedDict):
+    messages: Annotated[List[BaseMessage], add_messages]
+    task: str
+    context: str
+    agent_findings: Dict[str, Any]
+    next_agents: List[str]
+    confidence: float
+    action_needed: str
+
+# Vision Agent - Analyzes images and visual problems
+class VisionAgent:
+    """Specialized agent for image analysis and visual diagnosis"""
+    
+    def __init__(self):
+        self.llm = ChatOllama(
+            model=Config.MODEL_NAME,
+            base_url=Config.OLLAMA_BASE_URL,
+            temperature=Config.TEMPERATURE_PLANNING
+        )
+        self.name = "vision"
+    
+    def analyze_image(self, image_base64: str, user_description: str = "") -> Dict[str, Any]:
+        """Analyze image for repair opportunities"""
+        system_prompt = """You are a vision specialist repair agent. Analyze images to identify:
+1. Device type and model (if visible)
+2. Specific damage or issues
+3. Repair complexity (1-5 scale)
+4. Safety concerns
+5. Whether this is DIY-friendly
+
+Be precise and focus on actionable insights."""
+
+        try:
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=[
+                    {"type": "text", "text": f"Analyze this repair situation: {user_description}"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+                ])
+            ]
+            
+            response = self.llm.invoke(messages)
+            analysis = response.content
+            
+            # Extract structured info
+            findings = {
+                "device": self._extract_device(analysis),
+                "damage_type": self._extract_damage_type(analysis),
+                "complexity": self._extract_complexity(analysis),
+                "safety_concerns": self._extract_safety_concerns(analysis),
+                "summary": analysis,
+                "confidence": 0.8
+            }
+            
+            # Update global context
+            repair_context.visual_analysis = analysis
+            repair_context.device = findings["device"]
+            repair_context.safety_concerns = findings["safety_concerns"]
+            repair_context.update_findings(self.name, findings)
+            
+            return findings
+            
+        except Exception as e:
+            return {"error": f"Vision analysis failed: {str(e)}", "confidence": 0.0}
+    
+    def _extract_device(self, analysis: str) -> str:
+        """Extract device type from analysis"""
+        analysis_lower = analysis.lower()
+        devices = ['iphone', 'android', 'phone', 'laptop', 'computer', 'tablet', 'watch', 'headphones']
+        for device in devices:
+            if device in analysis_lower:
+                return device
+        return "unknown"
+    
+    def _extract_damage_type(self, analysis: str) -> str:
+        """Extract damage type"""
+        analysis_lower = analysis.lower()
+        damages = ['cracked screen', 'battery', 'water damage', 'broken', 'not charging', 'overheating']
+        for damage in damages:
+            if damage in analysis_lower:
+                return damage
+        return "unknown"
+    
+    def _extract_complexity(self, analysis: str) -> int:
+        """Extract repair complexity (1-5)"""
+        analysis_lower = analysis.lower()
+        if any(word in analysis_lower for word in ['simple', 'easy', 'basic']):
+            return 2
+        elif any(word in analysis_lower for word in ['complex', 'difficult', 'advanced']):
+            return 4
+        else:
+            return 3
+    
+    def _extract_safety_concerns(self, analysis: str) -> List[str]:
+        """Extract safety concerns"""
+        concerns = []
+        analysis_lower = analysis.lower()
+        if 'battery' in analysis_lower:
+            concerns.append('Battery handling')
+        if 'electrical' in analysis_lower:
+            concerns.append('Electrical safety')
+        if 'sharp' in analysis_lower:
+            concerns.append('Sharp components')
+        return concerns
+
+# Research Agent - Finds and analyzes repair manuals
+class ResearchAgent:
+    """Agent specialized in finding and evaluating repair resources"""
+    
+    def __init__(self):
+        self.llm = ChatOllama(
+            model=Config.MODEL_NAME,
+            base_url=Config.OLLAMA_BASE_URL,
+            temperature=Config.TEMPERATURE_PLANNING
+        )
+        self.name = "research"
+        self.dataset = MyFixitDataset(Config.DATASET_PATH)
+    
+    def find_repair_guide(self, device: str, problem: str) -> Dict[str, Any]:
+        """Search iFixit for the best repair guide and parse steps"""
+        context = repair_context.get_context_for_agent(self.name)
+
+        # 🔍 Search iFixit API
+        search_results = search_ifixit_guides.invoke(f"{device} {problem}")
+
+        # Extract first GuideID from search results
+        match = re.search(r"GuideID:\s*(\d+)", search_results)
+        best_guide_id = int(match.group(1)) if match else None
+
+        detailed_steps = ""
+        if best_guide_id:
+            detailed_steps = get_ifixit_guide_steps.invoke(best_guide_id)
+            # Parse short actionable steps
+            lines = detailed_steps.split("\n")
+            repair_context.manual_steps = [
+                l.strip() for l in lines if l.strip() and (l[0].isdigit() or l.startswith("-"))
+            ]
+            repair_context.current_step = 0
+
+        findings = {
+            "search_results": search_results,
+            "recommended_guideid": best_guide_id,
+            "detailed_steps": detailed_steps,
+            "confidence": 0.9 if best_guide_id else 0.3,
+            "summary": f"Found {'good' if best_guide_id else 'limited'} iFixit repair resources for {device} {problem}"
+        }
+
+        repair_context.current_manual = detailed_steps if best_guide_id else None
+        repair_context.update_findings(self.name, findings)
+        
+        return findings
+    
+    def _extract_best_manual(self, search_results: str) -> Optional[str]:
+        """Extract the best manual title from search results"""
+        if "Title:" in search_results:
+            lines = search_results.split('\n')
+            for line in lines:
+                if line.strip().startswith("Title:"):
+                    return line.replace("Title:", "").strip()
+        return None
+
+# Planning Agent - Creates repair strategies and coordinates approach
+class PlanningAgent:
+    """Agent that creates repair strategies and coordinates the overall approach"""
+    
+    def __init__(self):
+        self.llm = ChatOllama(
+            model=Config.MODEL_NAME,
+            base_url=Config.OLLAMA_BASE_URL,
+            temperature=Config.TEMPERATURE_PLANNING
+        )
+        self.name = "planning"
+    
+    def create_repair_strategy(self) -> Dict[str, Any]:
+        """Create comprehensive repair strategy based on all agent findings"""
+        context = repair_context.get_context_for_agent(self.name)
+        all_findings = json.dumps(repair_context.agent_findings, indent=2)
+        
+        strategy_prompt = f"""You are a master repair strategist. Based on all agent findings, create a comprehensive repair plan.
+
+Context: {context}
+
+Agent Findings:
+{all_findings}
+
+Create a strategy that includes:
+1. Overall approach and difficulty assessment
+2. Required tools and materials 
+3. Key safety considerations
+4. Step-by-step plan outline
+5. Potential challenges and solutions
+6. Success criteria
+7. When to seek professional help
+
+Consider the user's skill level and available resources."""
+
+        response = self.llm.invoke([HumanMessage(content=strategy_prompt)])
+        
+        # Extract structured plan
+        strategy_analysis = response.content
+        
+        findings = {
+            "strategy": strategy_analysis,
+            "confidence": self._assess_confidence(),
+            "recommended_mode": "conversational" if repair_context.current_manual else "research_more",
+            "safety_priority": "high" if repair_context.safety_concerns else "medium",
+            "summary": "Comprehensive repair strategy created"
+        }
+        
+        repair_context.confidence_level = findings["confidence"]
+        repair_context.update_findings(self.name, findings)
+        
+        return findings
+    
+    def _assess_confidence(self) -> float:
+        """Assess overall confidence in repair plan"""
+        total_confidence = 0
+        agent_count = 0
+        
+        for agent_findings in repair_context.agent_findings.values():
+            if "confidence" in agent_findings:
+                total_confidence += agent_findings["confidence"]
+                agent_count += 1
+        
+        return total_confidence / agent_count if agent_count > 0 else 0.5
+
+# Coordinator Agent - Manages agent collaboration and decides next steps
+class CoordinatorAgent:
+    """Meta-agent that coordinates other agents and makes strategic decisions"""
+    
+    def __init__(self):
+        self.llm = ChatOllama(
+            model=Config.MODEL_NAME,
+            base_url=Config.OLLAMA_BASE_URL,
+            temperature=0.5
+        )
+        self.name = "coordinator"
+        
+        # Initialize specialized agents
+        self.vision_agent = VisionAgent()
+        self.research_agent = ResearchAgent()
+        self.planning_agent = PlanningAgent()
+    
+    def analyze_situation_and_coordinate(self, user_input: str, image_data: str = None) -> Dict[str, Any]:
+        """Analyze situation and coordinate appropriate agents"""
+        
+        # Initial situation analysis
+        situation_prompt = f"""Analyze this repair request and determine what agents should be activated:
+
+User Request: {user_input}
+Has Image: {bool(image_data)}
+Current Context: {repair_context.get_context_for_agent('coordinator')}
+
+Decide:
+1. Which agents should be activated? (vision, research, planning)
+2. What information do we need to gather?
+3. What's the primary goal?
+4. How urgent/complex is this?
+
+Respond with agent activation plan."""
+
+        response = self.llm.invoke([HumanMessage(content=situation_prompt)])
+        coordination_plan = response.content
+        
+        # Activate appropriate agents based on analysis
+        results = {}
+        
+        # Extract user intent
+        repair_context.user_goal = user_input
+        repair_context.problem = self._extract_problem(user_input)
+        
+        # Activate Vision Agent if image provided
+        if image_data:
+            repair_context.image_data = image_data
+            results['vision'] = self.vision_agent.analyze_image(image_data, user_input)
+        
+        # Activate Research Agent if device/problem identified
+        if repair_context.device and repair_context.problem:
+            results['research'] = self.research_agent.find_repair_guide(
+                repair_context.device, repair_context.problem
+            )
+        
+        # Always activate Planning Agent to synthesize findings
+        results['planning'] = self.planning_agent.create_repair_strategy()
+        
+        # Determine next system mode
+        next_mode = self._determine_next_mode()
+        repair_context.mode = next_mode
+        
+        coordination_results = {
+            "coordination_plan": coordination_plan,
+            "agent_results": results,
+            "next_mode": next_mode.value,
+            "ready_for_guidance": repair_context.should_switch_to_conversational(),
+            "summary": f"Coordinated {len(results)} agents, ready for {next_mode.value} mode"
+        }
+        
+        repair_context.update_findings(self.name, coordination_results)
+        return coordination_results
+    
+    def _extract_problem(self, user_input: str) -> str:
+        """Extract the main problem from user input"""
+        input_lower = user_input.lower()
+        problems = ['cracked', 'broken', 'not working', 'dead', 'slow', 'overheating', 
+                   'battery', 'charging', 'screen', 'water damage', 'damaged']
+        
+        for problem in problems:
+            if problem in input_lower:
+                return problem
+        return "unknown issue"
+    
+    def _determine_next_mode(self) -> SystemMode:
+        """Determine what mode the system should enter next"""
+        planning = repair_context.agent_findings.get("planning", {})
+        if planning.get("offer_choice", False):
+            return SystemMode.LISTENING  # Wait for user to choose DIY or Professional
+        if repair_context.should_switch_to_conversational():
+            return SystemMode.CONVERSATIONAL
+        elif repair_context.confidence_level < 0.5:
+            return SystemMode.MULTI_AGENT
+        else:
+            return SystemMode.CONVERSATIONAL
+
+# Conversational Guide - Provides step-by-step interactive assistance
+class ConversationalGuide:
+    """Handles step-by-step conversational repair guidance"""
+    
+    def __init__(self):
+        self.llm = ChatOllama(
+            model=Config.MODEL_NAME,
+            base_url=Config.OLLAMA_BASE_URL,
+            temperature=Config.TEMPERATURE_INSTRUCTION
+        )
+    
+    def provide_guidance(self, user_message: str) -> str:
+        """Provide contextual repair guidance"""
+        if not repair_context.manual_steps and repair_context.current_manual:
+            lines = repair_context.current_manual.split("\n")
+            repair_context.manual_steps = [l.strip() for l in lines if l.strip() and l[0].isdigit()]
+            repair_context.current_step = 0
+
+        if user_message.lower() in ["done", "yes", "next", "ok"]:
+            repair_context.current_step += 1
+
+        if repair_context.current_step >= len(repair_context.manual_steps):
+            return "🎉 Repair steps complete! Let me know if you need anything else."
+
+        step_text = repair_context.manual_steps[repair_context.current_step]
+        return f"Step {repair_context.current_step + 1}: {step_text}"
+
+    
+    def _summarize_agent_findings(self) -> str:
+        """Create a brief summary of key agent findings"""
+        summary_parts = []
+        for agent_name, findings in repair_context.agent_findings.items():
+            if agent_name != "coordinator":
+                summary_parts.append(f"{agent_name}: {findings.get('summary', 'No summary')}")
+        return " | ".join(summary_parts)
+
+# Main System Controller
+class RepairAssistantSystem:
+    """Main system that orchestrates between multi-agent and conversational modes"""
+    
+    def __init__(self):
+        self.coordinator = CoordinatorAgent()
+        self.guide = ConversationalGuide()
+        self.vision_processor = self._init_vision_processor()
+    
+    def _init_vision_processor(self):
+        """Initialize vision processing capabilities"""
+        class VisionProcessor:
+            @staticmethod
+            def encode_image(image_path: str) -> Optional[str]:
+                try:
+                    with open(image_path, "rb") as f:
+                        return base64.b64encode(f.read()).decode('utf-8')
+                except Exception:
+                    return None
+        return VisionProcessor()
+    
+    def process_user_input(self, user_input: str, image_path: str = None) -> str:
+        """Main entry point for processing user input"""
+        
+        # Handle image if provided
+        image_data = None
+        if image_path and os.path.exists(image_path):
+            try:
+                Image.open(image_path)  # Verify it's an image
+                image_data = self.vision_processor.encode_image(image_path)
+                if image_data:
+                    print("📸 Image received and processed!")
+            except Exception:
+                print("⚠️ Could not process image file")
+        
+        # Determine current system mode and respond accordingly
+        if repair_context.mode == SystemMode.LISTENING:
+            # New repair request - activate multi-agent system
+            print("🤖 Activating repair agents...")
+            repair_context.mode = SystemMode.MULTI_AGENT
+            
+            coordination_results = self.coordinator.analyze_situation_and_coordinate(
+                user_input, image_data
+            )
+            
+            return self._format_multi_agent_response(coordination_results)
+            
+        elif repair_context.mode == SystemMode.CONVERSATIONAL:
+            # Ongoing repair guidance
+            return self.guide.provide_guidance(user_input)
+            
+        elif repair_context.mode == SystemMode.MULTI_AGENT:
+            # Continue multi-agent collaboration if needed
+            coordination_results = self.coordinator.analyze_situation_and_coordinate(
+                user_input, image_data
+            )
+            return self._format_multi_agent_response(coordination_results)
+        
+        else:
+            # Fallback to conversational mode
+            repair_context.mode = SystemMode.CONVERSATIONAL
+            return self.guide.provide_guidance(user_input)
+    
+    def _format_multi_agent_response(self, coordination_results: Dict) -> str:
+        """Format the multi-agent system response for user"""
+        response = "🔧 **Analysis Complete!**\n\n"
+        
+        # Add key findings
+        agent_results = coordination_results.get("agent_results", {})
+        
+        if "vision" in agent_results:
+            vision_findings = agent_results["vision"]
+            response += f"📸 **Visual Analysis**: {vision_findings.get('summary', 'Image analyzed')}\n"
+        
+        if "research" in agent_results:
+            research_findings = agent_results["research"]
+            response += f"📚 **Research**: {research_findings.get('summary', 'Resources found')}\n"
+        
+        if "planning" in agent_results:
+            planning_findings = agent_results["planning"]
+            response += f"📋 **Plan**: Ready to guide you through the repair\n"
+        
+        # Indicate mode switch
+        if coordination_results.get("ready_for_guidance"):
+            response += f"\n✅ **Ready to start!** I'll now guide you step-by-step. Just ask me what to do next!\n"
+            repair_context.mode = SystemMode.CONVERSATIONAL
+        else:
+            response += f"\n🔍 **Gathering more info...** I need a bit more information to help you effectively.\n"
+        
+        return response.strip()
+    
+    def get_status(self) -> str:
+        """Get current system status"""
+        status = f"**Current Status:**\n"
+        status += f"Mode: {repair_context.mode.value}\n"
+        status += f"Device: {repair_context.device or 'Unknown'}\n"
+        status += f"Problem: {repair_context.problem or 'Unknown'}\n"
+        status += f"Confidence: {repair_context.confidence_level:.1%}\n"
+        status += f"Step: {repair_context.current_step}\n"
+        
+        if repair_context.safety_concerns:
+            status += f"⚠️ Safety: {', '.join(repair_context.safety_concerns)}\n"
+        
+        return status
+    
+    def reset(self):
+        """Reset the system for a new repair"""
+        global repair_context
+        repair_context = RepairContext()
+        print("🗑️ System reset. Ready for new repair!")
+
+async def main():
+    """Main interactive loop"""
+    print("🔧 **Agentic Repair Assistant**")
+    print("I switch between multi-agent analysis and step-by-step guidance!")
+    print("Commands: 'status' | 'reset' | 'exit' | provide image path + description\n")
+
+    system = RepairAssistantSystem()
+    
+    while True:
+        user_input = input("You: ").strip()
+        
+        if user_input.lower() in ["exit", "quit", "bye"]:
+            print("👋 Good luck with your repair!")
+            break
+        elif user_input.lower() == "status":
+            print(system.get_status())
+            continue
+        elif user_input.lower() == "reset":
+            system.reset()
+            continue
+        elif not user_input:
+            continue
+        
+        # Check if input is an image path
+        image_path = None
+        if os.path.exists(user_input) and os.path.isfile(user_input):
+            image_path = user_input
+            user_input = input("Describe what needs repair: ").strip()
+            if not user_input:
+                continue
+        
+        try:
+            response = system.process_user_input(user_input, image_path)
+            print(f"\n🤖 {response}\n")
+            print("-" * 50)
+            
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            print("Please try again or type 'reset' to start over.")
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Goodbye!")

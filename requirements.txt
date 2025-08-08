@@ -1,0 +1,49 @@
+# Core LangChain and LangGraph
+langchain
+langchain-community
+langchain-core
+langgraph
+langsmith
+langchain_ollama
+
+# Ollama integration for Gemma 3
+ollama
+
+# Pydantic for data validation
+pydantic
+pydantic-core
+
+# Image processing and vision
+Pillow
+opencv-python
+
+# JSON and data processing
+jsonlines
+
+# Async support
+asyncio-mqtt
+aiofiles
+
+
+# Typing extensions
+typing-extensions
+
+# HTTP requests (for Ollama API)
+httpx
+requests
+
+# Optional: For better console output
+rich
+colorama
+
+# Optional: For XML output support (from original search.py)
+dicttoxml
+
+# Development and debugging
+python-dotenv
+
+# Optional: For better error handling and logging
+loguru
+
+# Optional: For progress bars during model downloads
+tqdm
