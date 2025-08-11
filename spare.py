@@ -157,7 +157,8 @@ Be precise and focus on actionable insights."""
             
             response = self.llm.invoke(messages)
             analysis = response.content
-            
+            print(f"[TOOL] Vision LLM | [INPUT] {user_description[:100]}...")
+            print(f"[EXTRACTED] {analysis[:500]}{'...' if len(analysis) > 500 else ''}")
             # Extract structured info
             findings = {
                 "device": self._extract_device(analysis),
@@ -238,6 +239,8 @@ class ResearchAgent:
 
         # 🔍 Search iFixit API
         search_results = search_ifixit_guides.invoke(f"{device} {problem}")
+        print(f"[TOOL] search_ifixit_guides | [QUERY] {device} {problem}")
+        print(f"[EXTRACTED] {search_results[:500]}{'...' if len(search_results) > 500 else ''}")
 
         # Extract first GuideID from search results
         match = re.search(r"GuideID:\s*(\d+)", search_results)
@@ -245,7 +248,9 @@ class ResearchAgent:
 
         detailed_steps = ""
         if best_guide_id:
-            detailed_steps = get_ifixit_guide_steps.invoke(best_guide_id)
+            detailed_steps = get_ifixit_guide_steps.invoke({"guideid": best_guide_id})
+            print(f"[TOOL] get_ifixit_guide_steps | [INPUT] GuideID {best_guide_id}")
+            print(f"[EXTRACTED] {detailed_steps[:500]}{'...' if len(detailed_steps) > 500 else ''}")
             # Parse short actionable steps
             lines = detailed_steps.split("\n")
             repair_context.manual_steps = [
@@ -314,6 +319,9 @@ Consider the user's skill level and available resources."""
         
         # Extract structured plan
         strategy_analysis = response.content
+
+        print(f"[TOOL] Planning LLM | [INPUT] strategy_prompt")
+        print(f"[EXTRACTED] {strategy_analysis[:500]}{'...' if len(strategy_analysis) > 500 else ''}")
         
         findings = {
             "strategy": strategy_analysis,
@@ -377,6 +385,8 @@ Respond with agent activation plan."""
 
         response = self.llm.invoke([HumanMessage(content=situation_prompt)])
         coordination_plan = response.content
+        print(f"[TOOL] Coordinator LLM | [INPUT] situation_prompt")
+        print(f"[EXTRACTED] {coordination_plan[:500]}{'...' if len(coordination_plan) > 500 else ''}")
         
         # Activate appropriate agents based on analysis
         results = {}
@@ -468,6 +478,8 @@ try to make the texts look like conversations, don't write long messages
 """
 
         response = self.llm.invoke([HumanMessage(content=guidance_prompt)])
+        print(f"[TOOL] Guide LLM | [INPUT] {user_message[:100]}...")
+        print(f"[EXTRACTED] {response.content[:500]}{'...' if len(response.content) > 500 else ''}")
         
         # Update conversation history
         repair_context.conversation_history.append({
