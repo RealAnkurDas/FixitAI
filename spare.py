@@ -181,13 +181,22 @@ Be precise and focus on actionable insights."""
             return {"error": f"Vision analysis failed: {str(e)}", "confidence": 0.0}
     
     def _extract_device(self, analysis: str) -> str:
-        """Extract device type from analysis"""
-        analysis_lower = analysis.lower()
-        devices = ['iphone', 'android', 'phone', 'laptop', 'computer', 'tablet', 'watch', 'headphones']
-        for device in devices:
-            if device in analysis_lower:
-                return device
-        return "unknown"
+        """Use AI to detect the exact device name and model."""
+        try:
+            llm_prompt = f"""
+            Identify the exact device make and model from the following repair analysis text.
+            Be as specific as possible (e.g., 'Framework Laptop 12', 'Samsung Galaxy S20', 'iPhone 14 Pro').
+            If you are not sure, make your best guess but keep it short.
+            
+            Analysis text:
+            {analysis}
+            """
+            response = self.llm.invoke([HumanMessage(content=llm_prompt)])
+            device_name = response.content.strip()
+            return device_name or "unknown device"
+        except Exception:
+            return "unknown device"
+
     
     def _extract_damage_type(self, analysis: str) -> str:
         """Extract damage type"""
@@ -242,8 +251,8 @@ class ResearchAgent:
         print(f"[TOOL] search_ifixit_guides | [QUERY] {device} {problem}")
         print(f"[EXTRACTED] {search_results[:500]}{'...' if len(search_results) > 500 else ''}")
 
-        # Extract first GuideID from search results
-        match = re.search(r"GuideID:\s*(\d+)", search_results)
+        # Loosened Guide ID regex
+        match = re.search(r"guide\s*id[:\s]+(\d+)", search_results, re.I)
         best_guide_id = int(match.group(1)) if match else None
 
         detailed_steps = ""
@@ -251,34 +260,35 @@ class ResearchAgent:
             detailed_steps = get_ifixit_guide_steps.invoke({"guideid": best_guide_id})
             print(f"[TOOL] get_ifixit_guide_steps | [INPUT] GuideID {best_guide_id}")
             print(f"[EXTRACTED] {detailed_steps[:500]}{'...' if len(detailed_steps) > 500 else ''}")
-            # Parse short actionable steps
-            lines = detailed_steps.split("\n")
+        else:
+            # No GuideID found — try to extract steps directly from search results
+            possible_steps = [
+                line.strip() for line in search_results.split("\n")
+                if line.strip() and (line[0].isdigit() or line.startswith("-"))
+            ]
+            if possible_steps:
+                detailed_steps = "\n".join(possible_steps)
+                print("[FALLBACK] Extracted steps from search results without GuideID.")
+
+        # Always set manual if we found any steps
+        if detailed_steps:
             repair_context.manual_steps = [
-                l.strip() for l in lines if l.strip() and (l[0].isdigit() or l.startswith("-"))
+                l.strip() for l in detailed_steps.split("\n")
+                if l.strip() and (l[0].isdigit() or l.startswith("-"))
             ]
             repair_context.current_step = 0
+            repair_context.current_manual = detailed_steps
 
         findings = {
             "search_results": search_results,
             "recommended_guideid": best_guide_id,
             "detailed_steps": detailed_steps,
-            "confidence": 0.9 if best_guide_id else 0.3,
-            "summary": f"Found {'good' if best_guide_id else 'limited'} iFixit repair resources for {device} {problem}"
+            "confidence": 0.9 if detailed_steps else 0.3,
+            "summary": f"Found {'good' if detailed_steps else 'limited'} iFixit repair resources for {device} {problem}"
         }
 
-        repair_context.current_manual = detailed_steps if best_guide_id else None
         repair_context.update_findings(self.name, findings)
-        
         return findings
-    
-    def _extract_best_manual(self, search_results: str) -> Optional[str]:
-        """Extract the best manual title from search results"""
-        if "Title:" in search_results:
-            lines = search_results.split('\n')
-            for line in lines:
-                if line.strip().startswith("Title:"):
-                    return line.replace("Title:", "").strip()
-        return None
 
 # Planning Agent - Creates repair strategies and coordinates approach
 class PlanningAgent:
@@ -425,15 +435,27 @@ Respond with agent activation plan."""
         return coordination_results
     
     def _extract_problem(self, user_input: str) -> str:
-        """Extract the main problem from user input"""
-        input_lower = user_input.lower()
-        problems = ['cracked', 'broken', 'not working', 'dead', 'slow', 'overheating', 
-                   'battery', 'charging', 'screen', 'water damage', 'damaged']
-        
-        for problem in problems:
-            if problem in input_lower:
-                return problem
-        return "unknown issue"
+        """Use AI to detect the required repair or modification"""
+        try:
+            context = repair_context.visual_analysis or ""
+            llm_prompt = f"""
+            You are a repair task classifier.
+            Based on the user's request and any visual analysis, identify the most likely
+            repair, replacement, or modification needed. Keep it short (2-5 words).
+            
+            User request: {user_input}
+            Visual analysis: {context}
+            
+            Example outputs: 
+            "mainboard replacement", "CPU upgrade", "screen replacement",
+            "battery swap", "RAM installation", "fan cleaning"
+            """
+            response = self.llm.invoke([HumanMessage(content=llm_prompt)])
+            problem = response.content.strip().lower()
+            return problem
+        except Exception:
+            return "unknown issue"
+
     
     def _determine_next_mode(self) -> SystemMode:
         """Determine what mode the system should enter next"""

@@ -5,6 +5,8 @@ Tools module for MyFixit dataset interface and utility functions
 """
 
 import json
+import re
+import math
 import itertools
 import requests
 from typing import List, Dict, Optional, Any
@@ -162,210 +164,105 @@ def get_repair_steps(manual_title: str) -> str:
     result += "\n".join([f"{i + 1}. {s.get('Text', '')}" for i, s in enumerate(steps)])
 
     return result
-IFIXIT_API_BASE = "https://www.ifixit.com/api/2.0"
 
-@tool
-def search_ifixit_guides(query: str) -> str:
-    """
-    Search the iFixit API for repair guides by keyword, filtering to relevant devices/problems.
-    Args:
-        query: Search terms, e.g., "iPhone 12 screen replacement"
-    Returns:
-        String summary of top relevant guides with guideid for fetching details.
-    """
-    try:
-        import requests
-        
-        # Define the iFixit API base URL
-        IFIXIT_API_BASE = "https://www.ifixit.com/api/2.0"
-        
-        # Clean and prepare search terms
-        query = query.strip()
-        if not query:
-            return "Empty search query provided."
-        
-        # Split query into keywords for better matching
-        keywords = [k.strip().lower() for k in query.split() if k.strip() and len(k.strip()) > 2]
-        
-        # Make API request with proper parameters
-        params = {
-            "query": query,
-            "limit": 50  # Get more results to filter from
+class iFixitAPI:
+    """Enhanced iFixit API interface"""
+    
+    def __init__(self):
+        self.base_url = "https://www.ifixit.com/api/2.0"
+        self.headers = {
+            'User-Agent': 'RepairBot/1.0'
         }
+    
+    def search_guides(self, query: str) -> List[Dict]:
+        """Search for repair guides with unlimited results"""
+        all_guides = []
+        offset = 0
+        limit = 50  # API limit per request
         
-        print(f"Searching iFixit for: '{query}'")  # Debug output
-        resp = requests.get(f"{IFIXIT_API_BASE}/guides", params=params, timeout=10)
-        resp.raise_for_status()
-        
-        data = resp.json()
-        print(f"API returned: {type(data)}")  # Debug output
-        
-        # Handle different API response formats
-        if isinstance(data, list):
-            guides = data
-        elif isinstance(data, dict):
-            guides = data.get("guides", data.get("results", []))
-        else:
-            return f"Unexpected API response format for '{query}'. Response type: {type(data)}"
-        
-        if not guides:
-            return f"No guides found for '{query}'. API returned empty results."
-        
-        print(f"Found {len(guides)} total guides")  # Debug output
-        
-        # Enhanced filtering with more flexible matching
-        filtered = []
-        for g in guides:
-            if not isinstance(g, dict):
-                continue
-            
-            title = g.get("title", "").lower()
-            device = g.get("device", "").lower()
-            summary = g.get("summary", "").lower()
-            category = g.get("category", "").lower()
-            
-            # Check if any keyword matches in title, device, summary, or category
-            match_found = False
-            for kw in keywords:
-                if (kw in title or kw in device or kw in summary or kw in category):
-                    match_found = True
-                    break
-            
-            # Also check for partial matches and common variations
-            if not match_found:
-                search_text = f"{title} {device} {summary} {category}"
-                # Handle common device name variations
-                device_variants = {
-                    'iphone': ['iphone', 'apple phone'],
-                    'samsung': ['samsung', 'galaxy'],
-                    'pixel': ['pixel', 'google pixel'],
-                    'macbook': ['macbook', 'mac book', 'apple laptop'],
-                    'ipad': ['ipad', 'apple tablet']
+        while True:
+            try:
+                url = f"{self.base_url}/search/{query}"
+                params = {
+                    'limit': limit,
+                    'offset': offset
                 }
                 
-                for kw in keywords:
-                    if kw in device_variants:
-                        for variant in device_variants[kw]:
-                            if variant in search_text:
-                                match_found = True
-                                break
-                    if match_found:
-                        break
-            
-            if match_found:
-                filtered.append(g)
-        
-        if not filtered:
-            # If no filtered results, show what we got for debugging
-            sample_titles = [g.get("title", "No title") for g in guides[:3]]
-            return f"No relevant guides found for '{query}'. Sample of available guides: {sample_titles}"
-        
-        print(f"Filtered to {len(filtered)} relevant guides")  # Debug output
-        
-        # Enhanced relevance scoring
-        def relevance_score(guide):
-            score = 0
-            title = guide.get("title", "").lower()
-            device = guide.get("device", "").lower()
-            summary = guide.get("summary", "").lower()
-            
-            for kw in keywords:
-                # Higher score for exact matches in title and device
-                if kw in title:
-                    score += 5
-                if kw in device:
-                    score += 4
-                if kw in summary:
-                    score += 2
+                response = requests.get(url, headers=self.headers, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
                 
-                # Bonus for multiple keyword matches
-                keyword_count = sum(1 for k in keywords if k in title or k in device)
-                score += keyword_count * 2
-            
-            return -score  # Negative for descending sort
+                # Handle different response formats
+                if isinstance(data, dict):
+                    guides = data.get('results', data.get('guides', []))
+                elif isinstance(data, list):
+                    guides = data
+                else:
+                    break
+                
+                if not guides:
+                    break
+                
+                all_guides.extend(guides)
+                
+                # If we got fewer results than the limit, we've reached the end
+                if len(guides) < limit:
+                    break
+                    
+                offset += limit
+                
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching guides: {e}")
+                break
         
-        filtered.sort(key=relevance_score)
+        return all_guides
+    
+    def get_guide_details(self, guide_id: int) -> Optional[Dict]:
+        """Get detailed information about a specific guide"""
+        try:
+            url = f"{self.base_url}/guides/{guide_id}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error getting guide details for {guide_id}: {e}")
+            return None
+    
+    def extract_tools_and_steps(self, guide_details: Dict) -> Dict[str, Any]:
+        """Extract tools and steps from guide details"""
+        if not isinstance(guide_details, dict):
+            return {"tools": [], "steps": [], "error": "Invalid guide format"}
         
-        # Build enhanced output
-        top_results = []
-        for i, g in enumerate(filtered[:7]):  # Show top 7 results
-            difficulty = g.get("difficulty", "Unknown")
-            time_required = g.get("time_required", "")
-            tools_required = g.get("tools", [])
-            
-            result = (
-                f"#{i+1} - GuideID: {g.get('guideid')}\n"
-                f"Title: {g.get('title')}\n"
-                f"Device: {g.get('device')}\n"
-                f"Difficulty: {difficulty}"
-            )
-            
-            if time_required:
-                result += f"\nTime Required: {time_required}"
-            
-            if tools_required and isinstance(tools_required, list):
-                tools_str = ", ".join(tools_required[:3])  # Show first 3 tools
-                if tools_str:
-                    result += f"\nTools Needed: {tools_str}"
-            
-            summary = g.get('summary', '').strip()
-            if summary:
-                result += f"\nSummary: {summary[:150]}{'...' if len(summary) > 150 else ''}"
-            
-            top_results.append(result)
-        
-        return f"Found {len(filtered)} relevant iFixit guides for '{query}':\n\n" + "\n\n".join(top_results)
-        
-    except requests.exceptions.RequestException as e:
-        return f"Network error searching iFixit: {str(e)}"
-    except requests.exceptions.Timeout:
-        return "Request to iFixit API timed out. Please try again."
-    except Exception as e:
-        return f"Error searching iFixit: {str(e)}"
-
-
-
-@tool
-def get_ifixit_guide_steps(guideid: int) -> str:
-    """
-    Fetch full guide details (steps, tools, difficulty) from iFixit.
-    """
-    try:
-        resp = requests.get(f"{IFIXIT_API_BASE}/guides/{guideid}")
-        resp.raise_for_status()
-        guide = resp.json()
-
-        # ✅ Ensure it's a dict before using .get()
-        if not isinstance(guide, dict):
-            return f"Unexpected API format for guide {guideid}: {guide}"
-
-        title = guide.get("title", "Unknown Guide")
-        difficulty = guide.get("difficulty", "Unknown")
-
-        # Safe time_required handling
-        time_required_raw = guide.get("time_required", "Not specified")
-        if isinstance(time_required_raw, dict):
-            time_required = time_required_raw.get("text", "Not specified")
-        elif isinstance(time_required_raw, list) and time_required_raw:
-            first_item = time_required_raw[0]
-            if isinstance(first_item, dict):
-                time_required = first_item.get("text", "Not specified")
+        # Extract tools
+        tools = []
+        tools_raw = guide_details.get("tools", [])
+        for tool in tools_raw:
+            if isinstance(tool, dict):
+                tool_name = tool.get("text", tool.get("title", tool.get("name", "")))
+                if tool_name:
+                    tools.append(tool_name)
             else:
-                time_required = str(first_item)
-        else:
-            time_required = str(time_required_raw)
-
-        # Safe tools & parts
-        tools_raw = guide.get("tools", [])
-        tools = [t.get("text") if isinstance(t, dict) else str(t) for t in tools_raw]
-
-        parts_raw = guide.get("parts", [])
-        parts = [p.get("text") if isinstance(p, dict) else str(p) for p in parts_raw]
-
-        # Safe steps
+                tools.append(str(tool))
+        
+        # Extract parts (also useful for repairs)
+        parts = []
+        parts_raw = guide_details.get("parts", [])
+        for part in parts_raw:
+            if isinstance(part, dict):
+                part_name = part.get("text", part.get("title", part.get("name", "")))
+                if part_name:
+                    parts.append(part_name)
+            else:
+                parts.append(str(part))
+        
+        # Extract steps
         steps = []
-        for idx, step in enumerate(guide.get("steps", []), 1):
+        for idx, step in enumerate(guide_details.get("steps", []), 1):
             if isinstance(step, dict):
+                # Try different possible step text locations
+                step_text = ""
+                
+                # Check for lines array (common format)
                 lines = step.get("lines", [])
                 if isinstance(lines, list) and lines:
                     first_line = lines[0]
@@ -373,18 +270,162 @@ def get_ifixit_guide_steps(guideid: int) -> str:
                         step_text = first_line.get("text", "").strip()
                     else:
                         step_text = str(first_line).strip()
-                else:
-                    step_text = ""
+                
+                # Fallback to direct text field
+                if not step_text:
+                    step_text = step.get("text", step.get("title", "")).strip()
+                
                 if step_text:
                     steps.append(f"{idx}. {step_text}")
+            else:
+                steps.append(f"{idx}. {str(step)}")
+        
+        return {
+            "tools": tools,
+            "parts": parts,
+            "steps": steps,
+            "difficulty": guide_details.get("difficulty", "Unknown"),
+            "time_required": self._extract_time_required(guide_details.get("time_required"))
+        }
+    
+    def _extract_time_required(self, time_data) -> str:
+        """Extract time required from various formats"""
+        if isinstance(time_data, dict):
+            return time_data.get("text", "Not specified")
+        elif isinstance(time_data, list) and time_data:
+            first_item = time_data[0]
+            if isinstance(first_item, dict):
+                return first_item.get("text", "Not specified")
+            else:
+                return str(first_item)
+        elif time_data:
+            return str(time_data)
+        return "Not specified"
 
+@tool
+def search_ifixit_guides(query: str) -> str:
+    """
+    Search iFixit API for repair guides with complete details including tools and steps.
+    Returns unlimited results with full guide information.
+    
+    Args:
+        query: Search term (e.g., "iPhone screen repair", "MacBook battery")
+    """
+    try:
+        api = iFixitAPI()
+        
+        # Search for guides
+        guides = api.search_guides(query)
+        
+        if not guides:
+            return f"No guides found for '{query}'."
+        
+        # Get detailed information for each guide
+        detailed_results = []
+        
+        for i, guide in enumerate(guides):
+            guide_id = guide.get('guideid') or guide.get('id')
+            if not guide_id:
+                continue
+                
+            # Get basic info
+            title = guide.get('title', 'Unknown Title')
+            device = guide.get('device', guide.get('category', 'Unknown Device'))
+            difficulty = guide.get('difficulty', 'Unknown')
+            
+            # Get detailed guide information
+            guide_details = api.get_guide_details(guide_id)
+            
+            result_text = f"#{i+1} - Guide ID: {guide_id}\n"
+            result_text += f"Title: {title}\n"
+            result_text += f"Device: {device}\n"
+            result_text += f"Difficulty: {difficulty}\n"
+            
+            if guide_details:
+                details = api.extract_tools_and_steps(guide_details)
+                
+                # Add time required
+                time_req = details.get('time_required', 'Not specified')
+                if time_req != 'Not specified':
+                    result_text += f"Time Required: {time_req}\n"
+                
+                # Add tools
+                tools = details.get('tools', [])
+                if tools:
+                    result_text += f"Tools Needed: {', '.join(tools[:5])}" # Limit to first 5 tools
+                    if len(tools) > 5:
+                        result_text += f" (+{len(tools)-5} more)"
+                    result_text += "\n"
+                
+                # Add parts if any
+                parts = details.get('parts', [])
+                if parts:
+                    result_text += f"Parts Needed: {', '.join(parts[:3])}" # Limit to first 3 parts
+                    if len(parts) > 3:
+                        result_text += f" (+{len(parts)-3} more)"
+                    result_text += "\n"
+                
+                # Add steps preview
+                steps = details.get('steps', [])
+                if steps:
+                    result_text += f"Steps ({len(steps)} total):\n"
+                    # Show first 3 steps as preview
+                    for step in steps[:3]:
+                        # Truncate long steps
+                        step_text = step[:100] + "..." if len(step) > 100 else step
+                        result_text += f"  {step_text}\n"
+                    if len(steps) > 3:
+                        result_text += f"  ... and {len(steps)-3} more steps\n"
+            else:
+                result_text += "Could not retrieve detailed guide information.\n"
+            
+            # Add summary if available
+            summary = guide.get('summary', '')
+            if summary:
+                summary_preview = summary[:150] + "..." if len(summary) > 150 else summary
+                result_text += f"Summary: {summary_preview}\n"
+            
+            detailed_results.append(result_text)
+        
+        return f"Found {len(guides)} iFixit guides for '{query}':\n\n" + "\n\n".join(detailed_results)
+        
+    except Exception as e:
+        return f"Error searching iFixit: {str(e)}"
+
+@tool
+def get_ifixit_guide_steps(guideid: int) -> str:
+    """
+    Fetch complete guide details (steps, tools, difficulty) from iFixit.
+    This function is maintained for backward compatibility.
+    """
+    try:
+        api = iFixitAPI()
+        guide_details = api.get_guide_details(guideid)
+        
+        if not guide_details:
+            return f"Could not retrieve guide {guideid}"
+        
+        title = guide_details.get("title", "Unknown Guide")
+        details = api.extract_tools_and_steps(guide_details)
+        
         result = f"Repair Guide: {title}\n"
-        result += f"Difficulty: {difficulty}\n"
-        result += f"Time Required: {time_required}\n"
-        result += f"Tools: {', '.join(tools) if tools else 'None listed'}\n"
-        result += f"Parts: {', '.join(parts) if parts else 'None listed'}\n\n"
-        result += "Steps:\n" + "\n".join(steps)
-
+        result += f"Difficulty: {details['difficulty']}\n"
+        result += f"Time Required: {details['time_required']}\n"
+        
+        if details['tools']:
+            result += f"Tools: {', '.join(details['tools'])}\n"
+        else:
+            result += "Tools: None listed\n"
+        
+        if details['parts']:
+            result += f"Parts: {', '.join(details['parts'])}\n"
+        else:
+            result += "Parts: None listed\n"
+        
+        result += f"\nSteps ({len(details['steps'])} total):\n"
+        result += "\n".join(details['steps'])
+        
         return result
+        
     except Exception as e:
         return f"Error fetching guide {guideid}: {str(e)}"
