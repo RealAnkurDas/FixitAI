@@ -30,7 +30,7 @@ import base64
 from PIL import Image
 
 # Import tools
-from tools import MyFixitDataset, search_repair_manuals, get_repair_steps, search_ifixit_guides, get_ifixit_guide_steps
+from tools import MyFixitDataset, search_repair_manuals, get_repair_steps, search_ifixit_guides, get_ifixit_guide_steps, search_wikihow, search_manualslib
 
 # Configuration
 class Config:
@@ -243,48 +243,48 @@ class ResearchAgent:
         self.dataset = MyFixitDataset(Config.DATASET_PATH)
     
     def find_repair_guide(self, device: str, problem: str) -> Dict[str, Any]:
-        """Search iFixit for the best repair guide and parse steps"""
+        """Search iFixit, then WikiHow, then Manualslib for guides"""
         context = repair_context.get_context_for_agent(self.name)
 
-        # 🔍 Search iFixit API
+        # 🔍 1. Search iFixit API
         search_results = search_ifixit_guides.invoke(f"{device} {problem}")
         print(f"[TOOL] search_ifixit_guides | [QUERY] {device} {problem}")
         print(f"[EXTRACTED] {search_results[:500]}{'...' if len(search_results) > 500 else ''}")
 
-        # Loosened Guide ID regex
+        # Extract Guide ID if possible
         match = re.search(r"guide\s*id[:\s]+(\d+)", search_results, re.I)
         best_guide_id = int(match.group(1)) if match else None
 
         detailed_steps = ""
         if best_guide_id:
             detailed_steps = get_ifixit_guide_steps.invoke({"guideid": best_guide_id})
-            print(f"[TOOL] get_ifixit_guide_steps | [INPUT] GuideID {best_guide_id}")
-            print(f"[EXTRACTED] {detailed_steps[:500]}{'...' if len(detailed_steps) > 500 else ''}")
-        else:
-            # No GuideID found — try to extract steps directly from search results
-            possible_steps = [
-                line.strip() for line in search_results.split("\n")
-                if line.strip() and (line[0].isdigit() or line.startswith("-"))
-            ]
-            if possible_steps:
-                detailed_steps = "\n".join(possible_steps)
-                print("[FALLBACK] Extracted steps from search results without GuideID.")
+        elif not detailed_steps:
+            # 2. Try WikiHow
+            wikihow_results = search_wikihow.invoke(f"{device} {problem}")
+            print(f"[TOOL] search_wikihow | [QUERY] {device} {problem}")
+            if wikihow_results and "wikihow" in wikihow_results.lower():
+                detailed_steps = wikihow_results
+        
+        if not detailed_steps:
+            # 3. Try Manualslib
+            manuals_results = search_manualslib.invoke(f"{device} {problem}")
+            print(f"[TOOL] search_manualslib | [QUERY] {device} {problem}")
+            if manuals_results and "manualslib" in manuals_results.lower():
+                detailed_steps = manuals_results
 
-        # Always set manual if we found any steps
+        # Save to context if we found something
         if detailed_steps:
-            repair_context.manual_steps = [
-                l.strip() for l in detailed_steps.split("\n")
-                if l.strip() and (l[0].isdigit() or l.startswith("-"))
-            ]
-            repair_context.current_step = 0
             repair_context.current_manual = detailed_steps
+            repair_context.current_step = 0
 
         findings = {
             "search_results": search_results,
+            "wikihow_results": wikihow_results if 'wikihow_results' in locals() else None,
+            "manualslib_results": manuals_results if 'manuals_results' in locals() else None,
             "recommended_guideid": best_guide_id,
             "detailed_steps": detailed_steps,
             "confidence": 0.9 if detailed_steps else 0.3,
-            "summary": f"Found {'good' if detailed_steps else 'limited'} iFixit repair resources for {device} {problem}"
+            "summary": f"Found repair resources for {device} {problem} (iFixit/WikiHow/Manualslib)"
         }
 
         repair_context.update_findings(self.name, findings)

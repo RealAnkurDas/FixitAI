@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Any
 from pathlib import Path
 from langchain.tools import tool
 from langchain_community.tools import DuckDuckGoSearchRun
+from bs4 import BeautifulSoup
 
 class MyFixitDataset:
     """Interface for querying MyFixit dataset"""
@@ -429,3 +430,52 @@ def get_ifixit_guide_steps(guideid: int) -> str:
         
     except Exception as e:
         return f"Error fetching guide {guideid}: {str(e)}"
+    
+@tool
+def search_wikihow(query: str) -> str:
+    """
+    Search WikiHow for repair or upcycling guides.
+    
+    Args:
+        query: Search term (e.g., "fix wooden chair", "upcycle old table")
+    """
+    try:
+        search_tool = DuckDuckGoSearchRun()
+        results = search_tool.run(f"site:wikihow.com {query}")
+        return f"WikiHow results for '{query}':\n\n{results}"
+    except Exception as e:
+        return f"Error searching WikiHow: {str(e)}"
+    
+@tool
+def search_manualslib(query: str) -> str:
+    """
+    Search Manualslib.com for product manuals.
+    Note: Manuals are often PDFs/images, so vision/OCR may be needed to parse content.
+    
+    Args:
+        query: Search term (e.g., "Samsung washing machine manual", "IKEA Malm assembly manual")
+    """
+    try:
+        # Manualslib search endpoint
+        url = "https://www.manualslib.com/serinfo.php"
+        params = {"term": query}
+        headers = {"User-Agent": "RepairBot/1.0"}
+        
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        resp.raise_for_status()
+        
+        # Parse top few results
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        for item in soup.select(".search-result a")[:5]:
+            title = item.get_text(strip=True)
+            link = "https://www.manualslib.com" + item.get("href")
+            results.append(f"{title} - {link}")
+        
+        if not results:
+            return f"No Manualslib results found for '{query}'."
+        
+        return f"Manualslib results for '{query}':\n\n" + "\n".join(results)
+    
+    except Exception as e:
+        return f"Error searching Manualslib: {str(e)}"
