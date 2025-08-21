@@ -13,7 +13,7 @@ class FixWorkflowScreen extends StatefulWidget {
 class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
   int _currentStep = 0;
   final _problemController = TextEditingController();
-  bool _isProcessing = false;
+  final bool _isProcessing = false;
 
   @override
   Widget build(BuildContext context) {

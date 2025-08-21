@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'screens/auth_screen.dart';
-import 'screens/main_hub_screen.dart';
 import 'utils/app_colors.dart';
 
 void main() {
