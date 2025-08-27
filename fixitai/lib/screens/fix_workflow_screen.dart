@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/difficulty_badge.dart';
+import 'camera_screen.dart';
 
 class FixWorkflowScreen extends StatefulWidget {
   const FixWorkflowScreen({super.key});
@@ -13,7 +15,7 @@ class FixWorkflowScreen extends StatefulWidget {
 class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
   int _currentStep = 0;
   final _problemController = TextEditingController();
-  final bool _isProcessing = false;
+  File? _capturedImage;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +53,20 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
     }
   }
 
+  void _openCamera() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CameraScreen(
+          onImageCaptured: (File imageFile) {
+            setState(() {
+              _capturedImage = imageFile;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildCameraStep() {
     return Column(
       children: [
@@ -67,30 +83,40 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.grey[300]!),
             ),
-            child: const Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.camera_alt,
-                  size: 80,
-                  color: AppColors.textSecondary,
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Camera Preview',
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 16,
+            child: _capturedImage != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.file(
+                      _capturedImage!,
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                : const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.camera_alt,
+                        size: 80,
+                        color: AppColors.textSecondary,
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Camera Preview',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
         ),
         const SizedBox(height: 24),
         CustomButton(
-          text: 'Capture Photo',
-          onPressed: () {},
+          text: _capturedImage != null ? 'Retake Photo' : 'Capture Photo',
+          onPressed: () => _openCamera(),
           icon: Icons.camera_alt,
         ),
         const SizedBox(height: 16),
@@ -111,7 +137,10 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
         const SizedBox(height: 24),
         CustomButton(
           text: 'Analyze Problem',
-          onPressed: () => setState(() => _currentStep = 1),
+          onPressed: _capturedImage != null 
+            ? () => setState(() => _currentStep = 1) 
+            : () {},
+          backgroundColor: _capturedImage != null ? AppColors.primary : Colors.grey,
         ),
       ],
     );
