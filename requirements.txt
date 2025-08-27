@@ -46,4 +46,4 @@ python-dotenv
 loguru
 
 # Optional: For progress bars during model downloads
-tqdm
+tqdmFlask

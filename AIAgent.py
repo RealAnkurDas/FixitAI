@@ -599,18 +599,27 @@ Keep safety in mind always.
 Try to make the texts look like conversations, don't write long messages
 """
 
-        response = self.llm.invoke([HumanMessage(content=guidance_prompt)])
+        response_stream = self.llm.stream([HumanMessage(content=guidance_prompt)])
         print(f"[TOOL] Guide LLM | [INPUT] {user_message[:100]}...")
-        print(f"[EXTRACTED] {response.content[:500]}{'...' if len(response.content) > 500 else ''}")
+        
+        full_response = ""
+        print(f"\n🤖 ", end="")
+        for chunk in response_stream:
+            content = chunk.content
+            print(content, end="", flush=True)
+            full_response += content
+        print("\n")
+
+        print(f"[EXTRACTED] {full_response[:500]}{'...' if len(full_response) > 500 else ''}")
         
         # Update conversation history
         repair_context.conversation_history.append({
             "user": user_message,
-            "assistant": response.content,
+            "assistant": full_response,
             "step": repair_context.current_step
         })
         
-        return response.content
+        return "" # Return empty string as output is streamed
     
     def _summarize_agent_findings(self) -> str:
         """Create a brief summary of key agent findings"""
@@ -659,7 +668,8 @@ class RepairAssistantSystem:
         # Check current mode
         if repair_context.mode == SystemMode.CONVERSATIONAL:
             # Already in conversational mode - provide guidance
-            return self.guide.provide_guidance(user_input)
+            self.guide.provide_guidance(user_input)
+            return ""
         
         # New repair request - run multi-agent workflow
         print("🤖 Activating multi-agent workflow...")
@@ -786,7 +796,8 @@ async def main():
         
         try:
             response = system.process_user_input(user_input, image_path)
-            print(f"\n🤖 {response}\n")
+            if response:
+                print(f"\n🤖 {response}\n")
             print("-" * 50)
             
         except Exception as e:

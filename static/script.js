@@ -16,12 +16,12 @@ async function sendMessage() {
   chatBox.appendChild(botMessage);
 
   const formData = new FormData();
-  formData.append("message", message);
+  formData.append("input", message);
   if (image) {
     formData.append("image", image);
   }
 
-  const response = await fetch("/chat", {
+  const response = await fetch("/process", {
     method: "POST",
     body: formData
   });
