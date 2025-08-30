@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# -- coding: utf-8 --
 """
 True Agentic Multi-Agent Repair Assistant with LangGraph
 Switches between multi-agent problem solving and conversational guidance
@@ -30,13 +30,16 @@ import base64
 from PIL import Image
 
 # Import tools
-from tools import MyFixitDataset, search_repair_manuals, get_repair_steps, search_ifixit_guides, get_ifixit_guide_steps, search_wikihow, search_manualslib
+from tools import search_repair_manuals, search_ifixit_guides, get_ifixit_guide_steps, search_wikihow, search_manualslib
+
+# Import environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 # Configuration
 class Config:
-    MODEL_NAME = "gemma3:latest"
-    OLLAMA_BASE_URL = "http://localhost:11434"
-    DATASET_PATH = "MyFixit-Dataset/jsons"
+    MODEL_NAME = "qwen2.5vl:7b" #"gemma3:latest"
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL") # create a .env file in project root folder and set OLLAMA_BASE_URL = "your_ollama_base_url"
     TEMPERATURE_PLANNING = 0.7  # Higher for creative problem solving
     TEMPERATURE_INSTRUCTION = 0.2  # Lower for precise instructions
 
@@ -259,7 +262,6 @@ class ResearchAgent:
             temperature=Config.TEMPERATURE_PLANNING
         )
         self.name = "research"
-        self.dataset = MyFixitDataset(Config.DATASET_PATH)
     
     def find_repair_guide(self, device: str, problem: str) -> Dict[str, Any]:
         """Search iFixit, then WikiHow, then Manualslib for guides"""
@@ -444,7 +446,7 @@ def run_agents_parallel(state: AgentState) -> AgentState:
     
     # Run Vision Agent if active and image available
     if "vision" in active_agents and state.get("image_data"):
-        print("  👁️ Running Vision Agent...")
+        print("  👁 Running Vision Agent...")
         try:
             vision_agent = VisionAgent()
             vision_results = vision_agent.analyze_image(
@@ -637,9 +639,9 @@ class RepairAssistantSystem:
         # Initialize the multi-agent workflow
         self.workflow = build_sequential_multi_agent_graph()
         self.guide = ConversationalGuide()
-        self.vision_processor = self._init_vision_processor()
+        self.vision_processor = self.__init__vision_processor()
     
-    def _init_vision_processor(self):
+    def __init__vision_processor(self):
         """Initialize vision processing capabilities"""
         class VisionProcessor:
             @staticmethod
@@ -663,7 +665,7 @@ class RepairAssistantSystem:
                 if image_data:
                     print("📸 Image received and processed!")
             except Exception:
-                print("⚠️ Could not process image file")
+                print("⚠ Could not process image file")
         
         # Check current mode
         if repair_context.mode == SystemMode.CONVERSATIONAL:
@@ -705,29 +707,29 @@ class RepairAssistantSystem:
     def _format_workflow_response(self, state: AgentState) -> str:
         """Format the workflow response for the user"""
         
-        response = "🔧 **Multi-Agent Analysis Complete!**\n\n"
+        response = "🔧 *Multi-Agent Analysis Complete!*\n\n"
         
         # Show agent results
         agent_results = state.get("agent_results", {})
         
         if "vision" in agent_results:
             vision_summary = agent_results["vision"].get("summary", "Image analyzed")
-            response += f"👁️ **Vision**: {vision_summary[:100]}...\n"
+            response += f"👁 *Vision*: {vision_summary[:100]}...\n"
         
         if "research" in agent_results:
             research_summary = agent_results["research"].get("summary", "Resources found")  
-            response += f"📚 **Research**: {research_summary}\n"
+            response += f"📚 *Research*: {research_summary}\n"
             
         if "planning" in agent_results:
             planning_summary = agent_results["planning"].get("summary", "Strategy created")
-            response += f"📋 **Planning**: {planning_summary}\n"
+            response += f"📋 *Planning*: {planning_summary}\n"
         
         # Show confidence and next steps
         confidence = state.get("overall_confidence", 0.0)
-        response += f"\n🎯 **Confidence**: {confidence:.1%}\n"
+        response += f"\n🎯 *Confidence*: {confidence:.1%}\n"
         
         if state.get("ready_for_guidance"):
-            response += "\n✅ **Ready to start!** I'll now guide you step-by-step. Just ask me what to do next!"
+            response += "\n✅ *Ready to start!* I'll now guide you step-by-step. Just ask me what to do next!"
             # Switch to conversational mode
             repair_context.mode = SystemMode.CONVERSATIONAL
             
@@ -739,13 +741,13 @@ class RepairAssistantSystem:
             repair_context.problem = state.get("problem")
             
         else:
-            response += "\n🔍 **Need more information** - Let me know more details about your device and the issue."
+            response += "\n🔍 *Need more information* - Let me know more details about your device and the issue."
         
         return response
     
     def get_status(self) -> str:
         """Get current system status"""
-        status = f"**Current Status:**\n"
+        status = f"*Current Status:*\n"
         status += f"Mode: {repair_context.mode.value}\n"
         status += f"Device: {repair_context.device or 'Unknown'}\n"
         status += f"Problem: {repair_context.problem or 'Unknown'}\n"
@@ -753,7 +755,7 @@ class RepairAssistantSystem:
         status += f"Step: {repair_context.current_step}\n"
         
         if repair_context.safety_concerns:
-            status += f"⚠️ Safety: {', '.join(repair_context.safety_concerns)}\n"
+            status += f"⚠ Safety: {', '.join(repair_context.safety_concerns)}\n"
         
         return status
     
@@ -761,11 +763,11 @@ class RepairAssistantSystem:
         """Reset the system for a new repair"""
         global repair_context
         repair_context = RepairContext()
-        print("🗑️ System reset. Ready for new repair!")
+        print("🗑 System reset. Ready for new repair!")
 
 async def main():
     """Main interactive loop"""
-    print("🔧 **Agentic Repair Assistant**")
+    print("🔧 *Agentic Repair Assistant*")
     print("I switch between multi-agent analysis and step-by-step guidance!")
     print("Commands: 'status' | 'reset' | 'exit' | provide image path + description\n")
 

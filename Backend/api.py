@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# -- coding: utf-8 --
 """
 Flask API for True Agentic Multi-Agent Repair Assistant
 RESTful API endpoints for repair assistance with multi-agent coordination
@@ -384,4 +384,4 @@ if __name__ == '__main__':
     print("  DELETE /api/session/<id>      - Delete session")
     print("\n🚀 Server starting on http://localhost:5000")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=False)
