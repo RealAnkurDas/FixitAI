@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 
 # Configuration
-API_BASE_URL = "http://localhost:5000/api"
+API_BASE_URL = "https://prawn-correct-muskrat.ngrok-free.app/api"
 
 # Page config
 st.set_page_config(

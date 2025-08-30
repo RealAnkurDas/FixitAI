@@ -30,13 +30,12 @@ import base64
 from PIL import Image
 
 # Import tools
-from tools import MyFixitDataset, search_repair_manuals, get_repair_steps, search_ifixit_guides, get_ifixit_guide_steps, search_wikihow, search_manualslib
+from tools import search_repair_manuals, search_ifixit_guides, get_ifixit_guide_steps, search_wikihow, search_manualslib
 
 # Configuration
 class Config:
     MODEL_NAME = "gemma3:latest"
     OLLAMA_BASE_URL = "http://localhost:11434"
-    DATASET_PATH = "MyFixit-Dataset/jsons"
     TEMPERATURE_PLANNING = 0.7  # Higher for creative problem solving
     TEMPERATURE_INSTRUCTION = 0.2  # Lower for precise instructions
 
@@ -259,7 +258,6 @@ class ResearchAgent:
             temperature=Config.TEMPERATURE_PLANNING
         )
         self.name = "research"
-        self.dataset = MyFixitDataset(Config.DATASET_PATH)
     
     def find_repair_guide(self, device: str, problem: str) -> Dict[str, Any]:
         """Search iFixit, then WikiHow, then Manualslib for guides"""
