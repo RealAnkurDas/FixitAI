@@ -322,9 +322,31 @@ def search_wikihow(query: str) -> str:
         query: Search term (e.g., "fix wooden chair", "upcycle old table")
     """
     try:
-        search_tool = DuckDuckGoSearchRun()
-        results = search_tool.run(f"site:wikihow.com {query}")
-        return f"WikiHow results for '{query}':\n\n{results}"
+        # Direct web scraping approach to avoid ddgs dependency issues
+        search_url = f"https://www.wikihow.com/wikiHowTo?search={query.replace(' ', '+')}"
+        headers = {"User-Agent": "RepairBot/1.0"}
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        results = []
+        
+        # Extract search results
+        for item in soup.select(".result")[:3]:
+            title_elem = item.select_one(".result__title")
+            if title_elem:
+                title = title_elem.get_text(strip=True)
+                link = title_elem.get("href", "")
+                if link and not link.startswith("http"):
+                    link = "https://www.wikihow.com" + link
+                results.append(f"{title} - {link}")
+        
+        if results:
+            return f"WikiHow results for '{query}':\n\n" + "\n".join(results)
+        else:
+            return f"No WikiHow results found for '{query}'. Try a different search term."
+            
     except Exception as e:
         return f"Error searching WikiHow: {str(e)}"
     
@@ -338,26 +360,71 @@ def search_manualslib(query: str) -> str:
         query: Search term (e.g., "Samsung washing machine manual", "IKEA Malm assembly manual")
     """
     try:
-        # Manualslib search endpoint
-        url = "https://www.manualslib.com/serinfo.php"
-        params = {"term": query}
+        # Use the correct Manualslib search format: /c/search+terms.html
+        search_terms = query.replace(' ', '+').replace('_', '+')
+        search_url = f"https://www.manualslib.com/c/{search_terms}.html"
         headers = {"User-Agent": "RepairBot/1.0"}
         
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
+        resp = requests.get(search_url, headers=headers, timeout=10)
         resp.raise_for_status()
         
-        # Parse top few results
+        # Parse results
         soup = BeautifulSoup(resp.text, "html.parser")
         results = []
-        for item in soup.select(".search-result a")[:5]:
-            title = item.get_text(strip=True)
-            link = "https://www.manualslib.com" + item.get("href")
-            results.append(f"{title} - {link}")
         
-        if not results:
-            return f"No Manualslib results found for '{query}'."
+        # Look for manual links in the search results
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "")
+            title = link.get_text(strip=True)
+            
+            # Look for manual links and filter out navigation/other links
+            if ("/manual/" in href or "/product/" in href) and title and len(title) > 5:
+                if not href.startswith("http"):
+                    href = "https://www.manualslib.com" + href
+                
+                # Avoid duplicates
+                if not any(result.endswith(href) for result in results):
+                    results.append(f"{title} - {href}")
+                    
+                    if len(results) >= 5:
+                        break
         
-        return f"Manualslib results for '{query}':\n\n" + "\n".join(results)
+        if results:
+            return f"Manualslib results for '{query}':\n\n" + "\n".join(results)
+        else:
+            # Fallback: try a broader search
+            try:
+                # Try searching for just the main terms
+                main_terms = query.split()[0] if query.split() else query
+                fallback_url = f"https://www.manualslib.com/c/{main_terms}.html"
+                
+                fallback_resp = requests.get(fallback_url, headers=headers, timeout=10)
+                fallback_resp.raise_for_status()
+                
+                fallback_soup = BeautifulSoup(fallback_resp.text, "html.parser")
+                fallback_results = []
+                
+                for link in fallback_soup.find_all("a", href=True):
+                    href = link.get("href", "")
+                    title = link.get_text(strip=True)
+                    
+                    if ("/manual/" in href or "/product/" in href) and title and len(title) > 5:
+                        if not href.startswith("http"):
+                            href = "https://www.manualslib.com" + href
+                        
+                        if not any(result.endswith(href) for result in fallback_results):
+                            fallback_results.append(f"{title} - {href}")
+                            
+                            if len(fallback_results) >= 3:
+                                break
+                
+                if fallback_results:
+                    return f"Manualslib results for '{query}' (broader search):\n\n" + "\n".join(fallback_results)
+                else:
+                    return f"No Manualslib results found for '{query}'. Try a different search term."
+                    
+            except Exception as fallback_error:
+                return f"No Manualslib results found for '{query}'. Search failed: {str(fallback_error)}"
     
     except Exception as e:
         return f"Error searching Manualslib: {str(e)}"

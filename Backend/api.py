@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional
 import time
 
 # Import your existing system components
-from AIAgent import RepairAssistantSystem, RepairContext, SystemMode
+from AIAgent import SimpleRepairAssistant, WorkingMultiAgentSystem
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend integration
@@ -61,10 +61,10 @@ def get_or_create_session(session_id: str = None) -> tuple:
     
     if session_id not in user_sessions:
         user_sessions[session_id] = {
-            'system': RepairAssistantSystem(),
-            'context': RepairContext(),
+            'assistant': SimpleRepairAssistant(),
             'created_at': time.time(),
-            'last_activity': time.time()
+            'last_activity': time.time(),
+            'conversation_history': []
         }
     else:
         user_sessions[session_id]['last_activity'] = time.time()
@@ -101,22 +101,14 @@ def get_session_status(session_id):
         return jsonify({'error': 'Session not found'}), 404
     
     session_data = user_sessions[session_id]
-    system = session_data['system']
-    
-    # Get repair context from the system
-    repair_context = session_data['context']
+    assistant = session_data['assistant']
     
     return jsonify({
         'session_id': session_id,
-        'mode': repair_context.mode.value if hasattr(repair_context.mode, 'value') else str(repair_context.mode),
-        'device': repair_context.device,
-        'problem': repair_context.problem,
-        'current_step': repair_context.current_step,
-        'confidence_level': repair_context.confidence_level,
-        'safety_concerns': repair_context.safety_concerns,
-        'has_manual': repair_context.current_manual is not None,
-        'agent_findings_count': len(repair_context.agent_findings),
-        'conversation_history_length': len(repair_context.conversation_history)
+        'status': 'active',
+        'assistant_type': 'SimpleRepairAssistant',
+        'created_at': session_data['created_at'],
+        'last_activity': session_data['last_activity']
     })
 
 @app.route('/api/session/<session_id>/reset', methods=['POST'])
@@ -125,9 +117,8 @@ def reset_session(session_id):
     if session_id not in user_sessions:
         return jsonify({'error': 'Session not found'}), 404
     
-    # Create fresh system and context
-    user_sessions[session_id]['system'] = RepairAssistantSystem()
-    user_sessions[session_id]['context'] = RepairContext()
+    # Create fresh assistant
+    user_sessions[session_id]['assistant'] = SimpleRepairAssistant()
     user_sessions[session_id]['last_activity'] = time.time()
     
     return jsonify({
@@ -205,7 +196,7 @@ def analyze_repair(session_id):
             return jsonify({'error': 'Session not found'}), 404
         
         session_data = user_sessions[session_id]
-        system = session_data['system']
+        assistant = session_data['assistant']
         
         # Get request data
         data = request.get_json()
@@ -217,35 +208,49 @@ def analyze_repair(session_id):
             return jsonify({'error': 'Message is required'}), 400
         
         # Handle optional image
-        image_path = None
+        image_data = None
         if 'image_filename' in data:
             image_filename = secure_filename(data['image_filename'])
             potential_path = os.path.join(app.config['UPLOAD_FOLDER'], image_filename)
             if os.path.exists(potential_path):
-                image_path = potential_path
+                # Read and encode the image
+                with open(potential_path, "rb") as image_file:
+                    image_data = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # Add user message to conversation history
+        session_data['conversation_history'].append({
+            'role': 'user',
+            'message': user_input,
+            'timestamp': time.time(),
+            'has_image': image_data is not None
+        })
         
         # Process through the multi-agent system
-        response_text = system.process_user_input(user_input, image_path)
+        result = assistant.analyze_repair(user_input, image_data)
         
-        # Get updated status
-        repair_context = session_data['context']
+        # Add assistant response to conversation history
+        session_data['conversation_history'].append({
+            'role': 'assistant',
+            'message': result['guidance'],
+            'timestamp': time.time()
+        })
         
-        # Update the session's repair context with the system's context
-        # (This is a bit hacky - in a real system you'd want better state management)
-        from AIAgent import repair_context as global_context
-        session_data['context'] = global_context
+        # Update session activity
+        session_data['last_activity'] = time.time()
         
         return jsonify({
             'session_id': session_id,
-            'response': response_text,
-            'mode': global_context.mode.value if hasattr(global_context.mode, 'value') else str(global_context.mode),
-            'device': global_context.device,
-            'problem': global_context.problem,
-            'confidence_level': global_context.confidence_level,
-            'current_step': global_context.current_step,
-            'safety_concerns': global_context.safety_concerns,
-            'agent_findings': list(global_context.agent_findings.keys()),
-            'ready_for_guidance': global_context.mode == SystemMode.CONVERSATIONAL
+            'success': result['success'],
+            'response': result['guidance'],
+            'overall_confidence': result['overall_confidence'],
+            'processing_time': result['processing_time'],
+            'agent_results': {
+                agent: {
+                    'success': agent_result.success,
+                    'confidence': agent_result.confidence,
+                    'processing_time': agent_result.processing_time
+                } for agent, agent_result in result['agent_results'].items()
+            }
         })
         
     except Exception as e:
@@ -263,7 +268,7 @@ def conversational_guidance(session_id):
             return jsonify({'error': 'Session not found'}), 404
         
         session_data = user_sessions[session_id]
-        system = session_data['system']
+        assistant = session_data['assistant']
         
         # Get request data
         data = request.get_json()
@@ -274,31 +279,33 @@ def conversational_guidance(session_id):
         if not user_message:
             return jsonify({'error': 'Message is required'}), 400
         
-        # Check if in conversational mode
-        from AIAgent import repair_context as global_context
-        if global_context.mode != SystemMode.CONVERSATIONAL:
-            return jsonify({
-                'error': 'Not in guidance mode. Please run analysis first.',
-                'current_mode': global_context.mode.value if hasattr(global_context.mode, 'value') else str(global_context.mode)
-            }), 400
+        # Add user message to conversation history
+        session_data['conversation_history'].append({
+            'role': 'user',
+            'message': user_message,
+            'timestamp': time.time(),
+            'has_image': False
+        })
         
-        # Get guidance from the system
-        guidance_response = system.guide.provide_guidance(user_message)
+        # For now, just run another analysis with the follow-up question
+        # In a more sophisticated system, you'd want to maintain conversation context
+        result = assistant.analyze_repair(user_message, None)
         
-        # Since the guidance streams to console, we need to get the response differently
-        # The actual response is stored in conversation history
-        latest_conversation = global_context.conversation_history[-1] if global_context.conversation_history else None
+        # Add assistant response to conversation history
+        session_data['conversation_history'].append({
+            'role': 'assistant',
+            'message': result['guidance'],
+            'timestamp': time.time()
+        })
         
-        response_text = latest_conversation['assistant'] if latest_conversation else "I'm here to help! What would you like to know about the next step?"
+        # Update session activity
+        session_data['last_activity'] = time.time()
         
         return jsonify({
             'session_id': session_id,
-            'response': response_text,
-            'current_step': global_context.current_step,
-            'device': global_context.device,
-            'problem': global_context.problem,
-            'safety_concerns': global_context.safety_concerns,
-            'conversation_length': len(global_context.conversation_history)
+            'response': result['guidance'],
+            'success': result['success'],
+            'overall_confidence': result['overall_confidence']
         })
         
     except Exception as e:
@@ -313,12 +320,17 @@ def get_conversation_history(session_id):
     if session_id not in user_sessions:
         return jsonify({'error': 'Session not found'}), 404
     
-    from AIAgent import repair_context as global_context
+    session_data = user_sessions[session_id]
     
     return jsonify({
         'session_id': session_id,
-        'conversation_history': global_context.conversation_history,
-        'total_messages': len(global_context.conversation_history)
+        'conversation_history': session_data.get('conversation_history', []),
+        'session_info': {
+            'created_at': session_data['created_at'],
+            'last_activity': session_data['last_activity'],
+            'assistant_type': 'SimpleRepairAssistant',
+            'total_messages': len(session_data.get('conversation_history', []))
+        }
     })
 
 @app.route('/api/sessions', methods=['GET'])
