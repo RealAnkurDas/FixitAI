@@ -2,7 +2,15 @@
 the backend for the FixitAI app
 
 ## How it works
+![](readme_images/flow1.png)
+1. The API creates a new session and starts in listening mode
+2. the user sends an input to the API, the API will call the coordinator, which will have 3 agents running in parallel<br/>**Vision Agent**: uses gemma 3 to see what the type of product is as well as it's condition<br/>**Research agent**: analyzes all sources of fixing and upcycling, depending on the user's request, the sources are from IFixIt, WikiHow, and product manuals<br/>**Planning agent**: with all the resources the coordinator has, the Agent can plan how to help the user with fixing and upcycling a product
+3. once the agent is confident enough with what it has, it will give an output that it's ready and it switches to conversational mode, otherwise, it will go back to the coordinator and get more info from it
 
+Here's a graph of the conversational mode
+![](readme_images/flow3.png)
+1. The user sends an input to the API, the API will call the conversational guide, which will analyze the next step or assist the user by the agent findings, previous chats, and vision if a capture is given
+2. the conversational guide will then send an output response, and then waits for another input from the user
 
 ## Setup
 1. clone the repo
