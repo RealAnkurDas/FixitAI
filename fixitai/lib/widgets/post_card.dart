@@ -1,24 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/app_colors.dart';
+import '../models/post_model.dart';
+import '../models/user_model.dart';
 
 class PostCard extends StatelessWidget {
-  final String userAvatar;
-  final String userName;
-  final String postImage;
-  final String title;
-  final String description;
-  final int likes;
-  final int comments;
+  final PostModel post;
+  final UserModel? userProfile;
+  final VoidCallback? onTap;
+  final VoidCallback? onLike;
+  final VoidCallback? onComment;
+  final VoidCallback? onShare;
 
   const PostCard({
     super.key,
-    required this.userAvatar,
-    required this.userName,
-    required this.postImage,
-    required this.title,
-    required this.description,
-    required this.likes,
-    required this.comments,
+    required this.post,
+    this.userProfile,
+    this.onTap,
+    this.onLike,
+    this.onComment,
+    this.onShare,
   });
 
   @override
@@ -28,83 +29,93 @@ class PostCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // User header
+            _buildUserHeader(),
+            
+            // Post image
+            if (post.imageURL != null) _buildPostImage(),
+            
+            // Post content
+            _buildPostContent(),
+            
+            // Action buttons
+            _buildActionButtons(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserHeader() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
         children: [
-          // User header
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: AppColors.primary,
-                  child: Text(
-                    userName[0],
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  userName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.more_vert),
-                  onPressed: () {},
-                ),
-              ],
-            ),
+          // User avatar
+          CircleAvatar(
+            radius: 20,
+            backgroundColor: AppColors.primary.withOpacity(0.1),
+            backgroundImage: userProfile?.photoURL != null
+                ? CachedNetworkImageProvider(userProfile!.photoURL!)
+                : null,
+            child: userProfile?.photoURL == null
+                ? Text(
+                    userProfile?.displayName.isNotEmpty == true
+                        ? userProfile!.displayName[0].toUpperCase()
+                        : 'U',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  )
+                : null,
           ),
-          // Post image
-          Container(
-            height: 200,
-            width: double.infinity,
-            color: Colors.grey[200],
-            child: const Center(
-              child: Icon(
-                Icons.image,
-                size: 60,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-          // Post content
-          Padding(
-            padding: const EdgeInsets.all(16),
+          
+          const SizedBox(width: 12),
+          
+          // User info
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
+                  userProfile?.displayName ?? 'Unknown User',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
                   ),
                 ),
-                const SizedBox(height: 8),
                 Text(
-                  description,
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
+                  _formatTimeAgo(post.createdAt),
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
                   ),
                 ),
-                const SizedBox(height: 16),
-                // Action buttons
-                Row(
-                  children: [
-                    _buildActionButton(Icons.favorite_border, '$likes'),
-                    const SizedBox(width: 24),
-                    _buildActionButton(Icons.comment_outlined, '$comments'),
-                    const SizedBox(width: 24),
-                    _buildActionButton(Icons.share_outlined, 'Share'),
-                  ],
-                ),
               ],
+            ),
+          ),
+          
+          // Difficulty badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _getDifficultyColor(post.difficulty),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              post.difficulty,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -112,22 +123,225 @@ class PostCard extends StatelessWidget {
     );
   }
 
-  Widget _buildActionButton(IconData icon, String label) {
-    return GestureDetector(
-      onTap: () {},
-      child: Row(
+  Widget _buildPostImage() {
+    return Container(
+      width: double.infinity,
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        child: CachedNetworkImage(
+          imageUrl: post.imageURL!,
+          fit: BoxFit.cover,
+          placeholder: (context, url) => Container(
+            color: Colors.grey[200],
+            child: const Center(
+              child: CircularProgressIndicator(),
+            ),
+          ),
+          errorWidget: (context, url, error) => Container(
+            color: Colors.grey[200],
+            child: const Icon(Icons.error),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPostContent() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: AppColors.textSecondary),
-          const SizedBox(width: 4),
+          // Title
           Text(
-            label,
+            post.title,
             style: const TextStyle(
-              color: AppColors.textSecondary,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Description
+          Text(
+            post.description,
+            style: TextStyle(
+              color: Colors.grey[700],
               fontSize: 14,
             ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          
+          const SizedBox(height: 12),
+          
+          // Device type and time
+          Row(
+            children: [
+              Icon(Icons.devices, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                post.deviceType,
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+              const SizedBox(width: 4),
+              Text(
+                '${post.timeRequired} min',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          
+          // Tools used
+          if (post.toolsUsed.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 4,
+              children: post.toolsUsed.take(3).map((tool) => Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  tool,
+                  style: TextStyle(
+                    color: AppColors.primary,
+                    fontSize: 10,
+                  ),
+                ),
+              )).toList(),
+            ),
+            if (post.toolsUsed.length > 3)
+              Text(
+                '+${post.toolsUsed.length - 3} more',
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 10,
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButtons() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          // Like button
+          _buildActionButton(
+            icon: Icons.favorite_border,
+            label: '${post.likesCount}',
+            onTap: onLike,
+            isActive: false, // TODO: Check if current user liked
+          ),
+          
+          const SizedBox(width: 16),
+          
+          // Comment button
+          _buildActionButton(
+            icon: Icons.comment_outlined,
+            label: '${post.commentsCount}',
+            onTap: onComment,
+          ),
+          
+          const SizedBox(width: 16),
+          
+          // Share button
+          _buildActionButton(
+            icon: Icons.share_outlined,
+            label: 'Share',
+            onTap: onShare,
+          ),
+          
+          const Spacer(),
+          
+          // More options
+          IconButton(
+            onPressed: () {
+              // TODO: Show more options
+            },
+            icon: Icon(Icons.more_vert, color: Colors.grey[600]),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    VoidCallback? onTap,
+    bool isActive = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: isActive ? AppColors.primary : Colors.grey[600],
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isActive ? AppColors.primary : Colors.grey[600],
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
+    }
+  }
+
+  Color _getDifficultyColor(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return Colors.green;
+      case 'medium':
+        return Colors.orange;
+      case 'hard':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 }

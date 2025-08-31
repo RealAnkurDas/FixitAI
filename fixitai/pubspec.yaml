@@ -42,7 +42,15 @@ dependencies:
   firebase_core: ^3.15.2
   firebase_auth: ^5.7.0
   cloud_firestore: ^5.6.12
+  firebase_storage: ^12.3.3
   google_sign_in: ^6.1.6
+  cached_network_image: ^3.3.1
+  uuid: ^4.4.0
+  image: ^4.1.7
+  path_provider: ^2.1.4
+  cloudinary_public: ^0.21.0
+  http: ^1.1.0
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
