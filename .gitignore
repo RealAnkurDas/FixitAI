@@ -165,3 +165,6 @@ fastlane/test_output
 *.g.dart
 *.freezed.dart
 *.mocks.dart
+
+# virtual envionments
+.benv

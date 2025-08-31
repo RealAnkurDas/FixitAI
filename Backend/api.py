@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# -- coding: utf-8 --
 """
 Flask API for True Agentic Multi-Agent Repair Assistant
 RESTful API endpoints for repair assistance with multi-agent coordination
