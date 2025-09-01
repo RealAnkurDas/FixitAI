@@ -135,6 +135,9 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
                       final post = _posts[index];
                       final userProfile = _userProfiles[post.userId];
                       
+                      final currentUserId = _auth.currentUser?.uid;
+                      final canDelete = currentUserId == post.userId;
+                      
                       return PostCard(
                         post: post,
                         userProfile: userProfile,
@@ -142,6 +145,8 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
                         onLike: () => _handleLike(post),
                         onComment: () => _navigateToPostDetail(post),
                         onShare: () => _handleShare(post),
+                        onDelete: canDelete ? () => _handleDeletePost(post) : null,
+                        canDelete: canDelete,
                       );
                     },
                   ),
@@ -219,5 +224,49 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
         content: Text('Share functionality coming soon!'),
       ),
     );
+  }
+
+  Future<void> _handleDeletePost(PostModel post) async {
+    // Show confirmation dialog
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Post'),
+        content: const Text('Are you sure you want to delete this post? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) throw Exception('User not authenticated');
+      
+      await _socialService.deletePost(post.id, userId);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showErrorSnackBar('Failed to delete post: $e');
+      }
+    }
   }
 }

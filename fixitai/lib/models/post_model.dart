@@ -14,6 +14,7 @@ class PostModel {
   final int likesCount;
   final int commentsCount;
   final List<String> likedBy;
+  final List<String> savedBy;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -31,6 +32,7 @@ class PostModel {
     this.likesCount = 0,
     this.commentsCount = 0,
     this.likedBy = const [],
+    this.savedBy = const [],
     required this.createdAt,
     this.updatedAt,
   });
@@ -50,6 +52,7 @@ class PostModel {
       'likesCount': likesCount,
       'commentsCount': commentsCount,
       'likedBy': likedBy,
+      'savedBy': savedBy,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
     };
@@ -70,6 +73,7 @@ class PostModel {
       likesCount: map['likesCount']?.toInt() ?? 0,
       commentsCount: map['commentsCount']?.toInt() ?? 0,
       likedBy: List<String>.from(map['likedBy'] ?? []),
+      savedBy: List<String>.from(map['savedBy'] ?? []),
       createdAt: map['createdAt'] != null 
           ? (map['createdAt'] as Timestamp).toDate() 
           : DateTime.now(),
@@ -93,6 +97,7 @@ class PostModel {
     int? likesCount,
     int? commentsCount,
     List<String>? likedBy,
+    List<String>? savedBy,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -110,6 +115,7 @@ class PostModel {
       likesCount: likesCount ?? this.likesCount,
       commentsCount: commentsCount ?? this.commentsCount,
       likedBy: likedBy ?? this.likedBy,
+      savedBy: savedBy ?? this.savedBy,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

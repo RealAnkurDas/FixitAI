@@ -166,5 +166,9 @@ fastlane/test_output
 *.freezed.dart
 *.mocks.dart
 
-# virtual envionments
+# Virtual envionments
 .benv
+
+# Extra files and folders
+example.txt
+trueagent.md

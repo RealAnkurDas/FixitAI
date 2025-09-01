@@ -104,10 +104,30 @@ class AuthService {
 
   // Create user profile
   Future<void> _createUserProfile(User user, [String? displayName]) async {
+    // Try to get a better display name
+    String finalDisplayName = displayName ?? user.displayName ?? '';
+    
+    // If still empty, try to extract from email
+    if (finalDisplayName.isEmpty && user.email != null) {
+      final emailParts = user.email!.split('@');
+      if (emailParts.isNotEmpty) {
+        finalDisplayName = emailParts[0];
+        // Capitalize first letter
+        if (finalDisplayName.isNotEmpty) {
+          finalDisplayName = finalDisplayName[0].toUpperCase() + finalDisplayName.substring(1);
+        }
+      }
+    }
+    
+    // If still empty, use a generic name
+    if (finalDisplayName.isEmpty) {
+      finalDisplayName = 'User${user.uid.substring(0, 4)}';
+    }
+    
     final userModel = UserModel(
       id: user.uid,
       email: user.email ?? '',
-      displayName: displayName ?? user.displayName ?? 'User',
+      displayName: finalDisplayName,
       photoURL: user.photoURL,
       createdAt: DateTime.now(),
       lastActive: DateTime.now(),

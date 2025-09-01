@@ -11,6 +11,10 @@ class PostCard extends StatelessWidget {
   final VoidCallback? onLike;
   final VoidCallback? onComment;
   final VoidCallback? onShare;
+  final VoidCallback? onSave;
+  final VoidCallback? onDelete;
+  final bool isSaved;
+  final bool canDelete;
 
   const PostCard({
     super.key,
@@ -20,6 +24,10 @@ class PostCard extends StatelessWidget {
     this.onLike,
     this.onComment,
     this.onShare,
+    this.onSave,
+    this.onDelete,
+    this.isSaved = false,
+    this.canDelete = false,
   });
 
   @override
@@ -270,15 +278,47 @@ class PostCard extends StatelessWidget {
             onTap: onShare,
           ),
           
+          const SizedBox(width: 16),
+          
+          // Save button
+          _buildActionButton(
+            icon: isSaved ? Icons.bookmark : Icons.bookmark_border,
+            label: 'Save',
+            onTap: onSave,
+            isActive: isSaved,
+          ),
+          
           const Spacer(),
           
           // More options
-          IconButton(
-            onPressed: () {
-              // TODO: Show more options
-            },
-            icon: Icon(Icons.more_vert, color: Colors.grey[600]),
-          ),
+          if (canDelete)
+            PopupMenuButton<String>(
+              icon: Icon(Icons.more_vert, color: Colors.grey[600]),
+              onSelected: (value) {
+                if (value == 'delete' && onDelete != null) {
+                  onDelete!();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Delete Post', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          else
+            IconButton(
+              onPressed: () {
+                // TODO: Show more options for non-owners
+              },
+              icon: Icon(Icons.more_vert, color: Colors.grey[600]),
+            ),
         ],
       ),
     );

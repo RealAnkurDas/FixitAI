@@ -1,9 +1,13 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
+import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_colors.dart';
 import '../widgets/custom_button.dart';
 
@@ -14,117 +18,620 @@ class FixWorkflowScreen extends StatefulWidget {
   State<FixWorkflowScreen> createState() => _FixWorkflowScreenState();
 }
 
-class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
+class _FixWorkflowScreenState extends State<FixWorkflowScreen>
+    with TickerProviderStateMixin {
   final _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final List<ChatMessage> _messages = [];
+  final ImagePicker _imagePicker = ImagePicker();
   
-  CameraController? _cameraController;
-  List<CameraDescription>? _cameras;
-  bool _isCameraInitialized = false;
-  bool _isTyping = false;
-  String? _cameraError;
-  bool _useMockCamera = false;
+  // Session Management
+  List<ChatSession> sessions = [];
+  ChatSession? currentSession;
+  bool isSidebarOpen = false;
+  
+  // Animation controllers
+  late AnimationController _sidebarAnimationController;
+  late Animation<double> _sidebarAnimation;
+  late Animation<Offset> _chatSlideAnimation;
+  
+  // Chat state
+  List<ChatMessage> messages = [];
+  bool isLoading = false;
+  String? sessionId;
+  String loadingDots = '';
+  Timer? _loadingTimer;
+  File? selectedImage;
+  
+  // Demo progress messages
+  List<String> demoProgressMessages = [
+    "🔍 Running research agent...",
+    "📚 Checking iFixit manuals...",
+    "📖 Checking WikiHow guides...",
+    "🔧 Searching repair databases...",
+    "📋 Collecting results...",
+    "🧠 Analyzing findings...",
+    "⚙️ Crafting repair plan...",
+    "✅ Finalizing solution..."
+  ];
+  int currentProgressIndex = 0;
+  bool showingProgress = false;
   
   // API Configuration
-  static const String baseUrl = 'https://prawn-correct-muskrat.ngrok-free.app/api';
-  String? _sessionId;
-  String? _lastUploadedImage;
-  bool _isConnecting = false;
-  
-  // Track conversation state
-  bool _isInGuidanceMode = false;
+  static const String baseUrl = 'http://192.168.1.47:5000/api';
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
-    _createSession();
-  }
-
-  Future<void> _createSession() async {
-    setState(() {
-      _isConnecting = true;
-    });
-
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/session'),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',  // Skip ngrok browser warning
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          _sessionId = data['session_id'];
-          _isConnecting = false;
-        });
-        _addAIMessage(data['message'] ?? "Hi! I'm your AI repair assistant. I can see through your camera and help you fix things. Point your camera at the problem and tell me what's broken!");
-      } else {
-        throw Exception('Failed to create session: ${response.statusCode}');
-      }
-    } catch (e) {
-      setState(() {
-        _isConnecting = false;
-      });
-      _addAIMessage("Connection error. Using offline mode. Describe your problem and I'll help as best I can!");
-      print('Session creation error: $e');
-    }
-  }
-
-  Future<void> _initializeCamera() async {
-    try {
-      _cameras = await availableCameras();
-      if (_cameras != null && _cameras!.isNotEmpty) {
-        _cameraController = CameraController(
-          _cameras![0],
-          ResolutionPreset.medium,
-          enableAudio: false,
-        );
-        await _cameraController!.initialize();
-        if (mounted) {
-          setState(() {
-            _isCameraInitialized = true;
-          });
-        }
-      } else {
-        setState(() {
-          _cameraError = "No cameras available";
-          _useMockCamera = true;
-        });
-      }
-    } catch (e) {
-      print('Error initializing camera: $e');
-      setState(() {
-        _cameraError = "Camera permission denied or not available";
-        _useMockCamera = true;
-      });
-    }
+    
+    // Initialize animation controllers
+    _sidebarAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    
+    _sidebarAnimation = Tween<double>(
+      begin: 0.0,
+      end: 0.8, // 80% of screen width
+    ).animate(CurvedAnimation(
+      parent: _sidebarAnimationController,
+      curve: Curves.easeInOut,
+    ));
+    
+    _chatSlideAnimation = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0.8, 0.0), // Slide right by 80%
+    ).animate(CurvedAnimation(
+      parent: _sidebarAnimationController,
+      curve: Curves.easeInOut,
+    ));
+    
+    // Ensure sidebar starts closed
+    _sidebarAnimationController.value = 0.0;
+    
+    // Load saved sessions and create initial session
+    _loadSavedSessions();
   }
 
   @override
   void dispose() {
-    _cameraController?.dispose();
+    _sidebarAnimationController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
+    _loadingTimer?.cancel();
     super.dispose();
   }
 
-  void _addAIMessage(String message) {
+  void _toggleSidebar() {
     setState(() {
-      _messages.add(ChatMessage(message: message, isUser: false));
+      isSidebarOpen = !isSidebarOpen;
+      if (isSidebarOpen) {
+        _sidebarAnimationController.forward();
+      } else {
+        _sidebarAnimationController.reverse();
+      }
     });
-    _scrollToBottom();
   }
 
-  void _addUserMessage(String message) {
-    setState(() {
-      _messages.add(ChatMessage(message: message, isUser: true));
+  // Session persistence methods
+  Future<void> _loadSavedSessions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionsJson = prefs.getStringList('chat_sessions') ?? [];
+      
+      final loadedSessions = <ChatSession>[];
+      for (final sessionJson in sessionsJson) {
+        try {
+          final sessionData = json.decode(sessionJson);
+          final messages = <ChatMessage>[];
+          
+          for (final messageData in sessionData['messages']) {
+            messages.add(ChatMessage(
+              message: messageData['message'],
+              isUser: messageData['isUser'],
+            ));
+          }
+          
+          loadedSessions.add(ChatSession(
+            id: sessionData['id'],
+            title: sessionData['title'],
+            timestamp: DateTime.parse(sessionData['timestamp']),
+            messages: messages,
+          ));
+        } catch (e) {
+          print('Error parsing session: $e');
+        }
+      }
+      
+      setState(() {
+        sessions = loadedSessions;
+      });
+      
+      // Always create a new session when app opens
+      await _createNewSession();
+    } catch (e) {
+      print('Error loading sessions: $e');
+      _createNewSession();
+    }
+  }
+
+  Future<void> _saveSessions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionsJson = sessions.map((session) {
+        return json.encode({
+          'id': session.id,
+          'title': session.title,
+          'timestamp': session.timestamp.toIso8601String(),
+          'messages': session.messages.map((message) {
+            return {
+              'message': message.message,
+              'isUser': message.isUser,
+            };
+          }).toList(),
+        });
+      }).toList();
+      
+      await prefs.setStringList('chat_sessions', sessionsJson);
+    } catch (e) {
+      print('Error saving sessions: $e');
+    }
+  }
+
+  void _startLoadingAnimation() {
+    _loadingTimer?.cancel();
+    currentProgressIndex = 0;
+    showingProgress = true;
+    
+    // Randomly select 5-8 progress messages
+    final random = Random();
+    final numSteps = random.nextInt(4) + 5; // 5-8 steps
+    final selectedSteps = demoProgressMessages.take(numSteps).toList();
+    
+    int stepIndex = 0;
+    _loadingTimer = Timer.periodic(const Duration(milliseconds: 800), (timer) {
+      if (stepIndex < selectedSteps.length) {
+        setState(() {
+          loadingDots = selectedSteps[stepIndex];
+        });
+        stepIndex++;
+      } else {
+        timer.cancel();
+      }
     });
+  }
+
+  void _stopLoadingAnimation() {
+    _loadingTimer?.cancel();
+    setState(() {
+      loadingDots = '';
+      showingProgress = false;
+    });
+  }
+
+  Future<void> _createNewSession() async {
+    try {
+      // Create session on the backend first
+      final sessionResponse = await http.post(
+        Uri.parse('$baseUrl/session'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (sessionResponse.statusCode == 200) {
+        final sessionData = json.decode(sessionResponse.body);
+        final newSessionId = sessionData['session_id'];
+        
+        final newSession = ChatSession(
+          id: newSessionId,
+          title: 'New Session ${sessions.length + 1}',
+          timestamp: DateTime.now(),
+          messages: [],
+        );
+        
+        setState(() {
+          sessions.add(newSession);
+          currentSession = newSession;
+          messages = [];
+          sessionId = newSessionId;
+        });
+        
+        // Send initial greeting
+        _sendInitialGreeting();
+      } else {
+        throw Exception('Failed to create session: ${sessionResponse.statusCode}');
+      }
+    } catch (e) {
+      print('Error creating session: $e');
+      
+      // Show error to user instead of creating local session
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create session. Please check your connection and try again.'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      
+      // Don't create a local session - this causes ID mismatches
+      // Instead, just show an error state
+    }
+  }
+
+  Future<void> _selectSession(ChatSession session) async {
+    try {
+      // Fetch conversation history from backend
+      final response = await http.get(
+        Uri.parse('$baseUrl/session/${session.id}/history'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final history = data['conversation_history'] as List<dynamic>;
+        
+        // Convert history to ChatMessage objects
+        final historyMessages = history.map((msg) => ChatMessage(
+          message: msg['message'],
+          isUser: msg['isUser'],
+        )).toList();
+        
+        setState(() {
+          currentSession = session;
+          session.updateMessages(historyMessages);
+          messages = List.from(historyMessages);
+          sessionId = session.id;
+        });
+      } else {
+        // Fallback to local messages if backend fails
+        setState(() {
+          currentSession = session;
+          messages = List.from(session.messages);
+          sessionId = session.id;
+        });
+      }
+    } catch (e) {
+      print('Error fetching session history: $e');
+      // Fallback to local messages
+      setState(() {
+        currentSession = session;
+        messages = List.from(session.messages);
+        sessionId = session.id;
+      });
+    }
+    
+    _toggleSidebar();
+  }
+
+  Future<void> _deleteSession(ChatSession session) async {
+    // Show confirmation dialog
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Session'),
+        content: Text('Are you sure you want to delete "${session.title}"? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      // Delete from backend if sessionId exists
+      if (session.id != null) {
+        final response = await http.delete(
+          Uri.parse('$baseUrl/session/${session.id}'),
+          headers: {'Content-Type': 'application/json'},
+        );
+        
+        if (response.statusCode != 200 && response.statusCode != 404) {
+          print('Failed to delete session from backend: ${response.statusCode}');
+        }
+      }
+
+      // Remove from local sessions
+      setState(() {
+        sessions.remove(session);
+        
+        // If we deleted the current session, switch to the first available session
+        if (currentSession?.id == session.id) {
+          if (sessions.isNotEmpty) {
+            currentSession = sessions.first;
+            sessionId = currentSession!.id;
+            messages = List.from(currentSession!.messages);
+          } else {
+            currentSession = null;
+            sessionId = null;
+            messages = [];
+          }
+        }
+      });
+
+      // Save updated sessions
+      await _saveSessions();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete session: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _sendInitialGreeting() {
+    final greeting = ChatMessage(
+      message: "Hello! I'm your AI repair assistant. I can help you diagnose and fix issues with your devices. You can:\n\n• Describe the problem you're experiencing\n• Upload photos of the issue\n• Ask for step-by-step repair instructions\n\nWhat can I help you with today?",
+      isUser: false,
+    );
+    
+    setState(() {
+      messages.add(greeting);
+      if (currentSession != null) {
+        currentSession!.messages.add(greeting);
+      }
+    });
+  }
+
+  Future<void> _sendMessage() async {
+    if (_messageController.text.trim().isEmpty && selectedImage == null) return;
+
+    String messageText = _messageController.text.trim();
+    if (selectedImage != null && messageText.isEmpty) {
+      messageText = "📷 [Image uploaded]";
+    }
+
+    final userMessage = ChatMessage(
+      message: messageText,
+      isUser: true,
+    );
+
+    setState(() {
+      messages.add(userMessage);
+      if (currentSession != null) {
+        currentSession!.addMessage(userMessage);
+      }
+      isLoading = true;
+    });
+    _startLoadingAnimation();
+    
+    // Save sessions after adding message
+    _saveSessions();
+
+    _messageController.clear();
+    selectedImage = null;
     _scrollToBottom();
+
+    try {
+      // First ensure we have a session
+      if (sessionId == null) {
+        final sessionResponse = await http.post(
+          Uri.parse('$baseUrl/session'),
+          headers: {'Content-Type': 'application/json'},
+        );
+        
+        if (sessionResponse.statusCode == 200) {
+          final sessionData = json.decode(sessionResponse.body);
+          sessionId = sessionData['session_id'];
+        } else {
+          throw Exception('Failed to create session');
+        }
+      }
+
+      // Send message to the correct endpoint
+      http.Response response;
+      
+      if (selectedImage != null) {
+        // Upload image first
+        final uploadRequest = http.MultipartRequest(
+          'POST',
+          Uri.parse('$baseUrl/upload'),
+        );
+
+        uploadRequest.fields['session_id'] = sessionId!;
+
+        final imageStream = http.ByteStream(selectedImage!.openRead());
+        final imageLength = await selectedImage!.length();
+        final multipartFile = http.MultipartFile(
+          'image',
+          imageStream,
+          imageLength,
+          filename: path.basename(selectedImage!.path),
+        );
+        uploadRequest.files.add(multipartFile);
+
+        final uploadResponse = await uploadRequest.send();
+        final uploadResponseBody = await http.Response.fromStream(uploadResponse);
+
+        if (uploadResponseBody.statusCode == 200) {
+          final uploadData = json.decode(uploadResponseBody.body);
+          final filename = uploadData['filename'];
+
+          // Send analysis request with image
+          response = await http.post(
+            Uri.parse('$baseUrl/session/$sessionId/analyze'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'message': messageText,
+              'image_filename': filename,
+            }),
+          );
+        } else {
+          throw Exception('Failed to upload image');
+        }
+      } else {
+        // Send text-only message
+        response = await http.post(
+          Uri.parse('$baseUrl/session/$sessionId/analyze'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'message': messageText,
+          }),
+        );
+      }
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final aiMessage = ChatMessage(
+          message: data['response'] ?? 'Sorry, I encountered an error.',
+          isUser: false,
+        );
+
+        setState(() {
+          messages.add(aiMessage);
+          if (currentSession != null) {
+            currentSession!.addMessage(aiMessage);
+          }
+        });
+        
+        // Save sessions after AI response
+        _saveSessions();
+      } else {
+        _addErrorMessage('Failed to get response from AI');
+      }
+    } catch (e) {
+      _addErrorMessage('Connection error. Please check your internet connection.');
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+      _stopLoadingAnimation();
+      _scrollToBottom();
+    }
+  }
+
+  Future<void> _sendImageWithMessage(File imageFile) async {
+    final userMessage = ChatMessage(
+      message: "📷 [Image uploaded]",
+      isUser: true,
+    );
+
+    setState(() {
+      messages.add(userMessage);
+      if (currentSession != null) {
+        currentSession!.messages.add(userMessage);
+      }
+      isLoading = true;
+    });
+    _startLoadingAnimation();
+
+    _scrollToBottom();
+
+    try {
+      // First ensure we have a session
+      if (sessionId == null) {
+        final sessionResponse = await http.post(
+          Uri.parse('$baseUrl/session'),
+          headers: {'Content-Type': 'application/json'},
+        );
+        
+        if (sessionResponse.statusCode == 200) {
+          final sessionData = json.decode(sessionResponse.body);
+          sessionId = sessionData['session_id'];
+        } else {
+          throw Exception('Failed to create session');
+        }
+      }
+
+      // First upload the image
+      final uploadRequest = http.MultipartRequest(
+        'POST',
+        Uri.parse('$baseUrl/upload'),
+      );
+
+      uploadRequest.fields['session_id'] = sessionId!;
+
+      final imageStream = http.ByteStream(imageFile.openRead());
+      final imageLength = await imageFile.length();
+      final multipartFile = http.MultipartFile(
+        'image',
+        imageStream,
+        imageLength,
+        filename: path.basename(imageFile.path),
+      );
+      uploadRequest.files.add(multipartFile);
+
+      final uploadResponse = await uploadRequest.send();
+      final uploadResponseBody = await http.Response.fromStream(uploadResponse);
+
+      if (uploadResponseBody.statusCode == 200) {
+        final uploadData = json.decode(uploadResponseBody.body);
+        final filename = uploadData['filename'];
+
+        // Now send the analysis request with the uploaded image
+        final analyzeResponse = await http.post(
+          Uri.parse('$baseUrl/session/$sessionId/analyze'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'message': 'Analyze this image and help me with the repair.',
+            'image_filename': filename,
+          }),
+        );
+
+        if (analyzeResponse.statusCode == 200) {
+          final data = json.decode(analyzeResponse.body);
+          final aiMessage = ChatMessage(
+            message: data['response'] ?? 'Sorry, I encountered an error analyzing the image.',
+            isUser: false,
+          );
+
+          setState(() {
+            messages.add(aiMessage);
+            if (currentSession != null) {
+              currentSession!.messages.add(aiMessage);
+            }
+          });
+        } else {
+          _addErrorMessage('Failed to analyze image');
+        }
+      } else {
+        _addErrorMessage('Failed to upload image');
+      }
+    } catch (e) {
+      _addErrorMessage('Connection error while uploading image');
+    } finally {
+      setState(() {
+        isLoading = false;
+      });
+      _stopLoadingAnimation();
+      _scrollToBottom();
+    }
+  }
+
+
+
+  void _addErrorMessage(String message) {
+    final errorMessage = ChatMessage(
+      message: message,
+      isUser: false,
+    );
+    setState(() {
+      messages.add(errorMessage);
+      if (currentSession != null) {
+        currentSession!.messages.add(errorMessage);
+      }
+    });
   }
 
   void _scrollToBottom() {
@@ -139,541 +646,538 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
     });
   }
 
-  Future<void> _captureAndUploadImage() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      _addUserMessage("Taking a photo for analysis");
-      _addAIMessage("I can see the issue better now. Please describe what specific problem you're experiencing.");
-      return;
-    }
-
-    try {
-      setState(() {
-        _isTyping = true;
-      });
-
-      final XFile image = await _cameraController!.takePicture();
-      _addUserMessage("📷 Photo captured for analysis");
-
-      if (_sessionId != null) {
-        await _uploadImage(File(image.path));
-      } else {
-        _addAIMessage("Photo captured! Please describe the problem you're seeing so I can help you fix it.");
-      }
-    } catch (e) {
-      _addAIMessage("Couldn't capture photo, but I can still help! Please describe the problem.");
-      print('Camera capture error: $e');
-    } finally {
-      setState(() {
-        _isTyping = false;
-      });
-    }
+  Future<void> _showImageOptions() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.blue),
+                title: const Text('Take Photo'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _takePhoto();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.green),
+                title: const Text('Upload Image'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _pickImage();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
-  Future<void> _uploadImage(File imageFile) async {
-    if (_sessionId == null) return;
-
+  Future<void> _takePhoto() async {
     try {
-      var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
-      request.fields['session_id'] = _sessionId!;
-      request.files.add(await http.MultipartFile.fromPath('image', imageFile.path));
-
-      var response = await request.send();
-      var responseBody = await response.stream.bytesToString();
-
-      if (response.statusCode == 200) {
-        final data = json.decode(responseBody);
-        setState(() {
-          _lastUploadedImage = data['filename'];
-        });
-        _addAIMessage(data['message'] ?? "Image uploaded! Now tell me what's wrong.");
-      } else {
-        _addAIMessage("Image upload failed, but I can still help based on your description.");
-      }
-    } catch (e) {
-      _addAIMessage("Couldn't upload image, but I can still help! Please describe what you see.");
-      print('Upload error: $e');
-    }
-  }
-
-  void _sendMessage() {
-    final message = _messageController.text.trim();
-    if (message.isNotEmpty) {
-      _addUserMessage(message);
-      _messageController.clear();
-      
-      // Show typing indicator
-      setState(() {
-        _isTyping = true;
-      });
-      
-      if (_sessionId != null) {
-        _sendToAPI(message);
-      } else {
-        // Fallback to mock responses
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          if (mounted) {
-            setState(() {
-              _isTyping = false;
-            });
-            _generateMockResponse(message);
-          }
-        });
-      }
-    }
-  }
-
-  Future<void> _sendToAPI(String message) async {
-    if (_sessionId == null) return;
-
-    try {
-      Map<String, dynamic> requestBody = {
-        'message': message,
-      };
-
-      // Include last uploaded image if available for analysis calls
-      if (_lastUploadedImage != null && !_isInGuidanceMode) {
-        requestBody['image_filename'] = _lastUploadedImage;
-      }
-
-      // Choose endpoint based on current mode
-      String endpoint = _isInGuidanceMode 
-          ? '$baseUrl/session/$_sessionId/guide'
-          : '$baseUrl/session/$_sessionId/analyze';
-
-      print('Sending to endpoint: $endpoint');
-      print('Request body: ${json.encode(requestBody)}');
-
-      final response = await http.post(
-        Uri.parse(endpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',  // Add this to skip ngrok warning
-        },
-        body: json.encode(requestBody),
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
       );
-
-      print('Response status: ${response.statusCode}');
-      print('Response body: ${response.body}');
-
-      if (mounted) {
+      
+      if (photo != null) {
         setState(() {
-          _isTyping = false;
+          selectedImage = File(photo.path);
         });
-
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          
-          // Extract the response text properly
-          String responseText = data['response'] ?? 
-                               data['message'] ?? 
-                               "I'm processing your request...";
-          
-          if (responseText.trim().isEmpty) {
-            responseText = "I received your message but had trouble formulating a response. Can you try asking in a different way?";
-          }
-          
-          _addAIMessage(responseText);
-          
-          // Clear the used image reference
-          _lastUploadedImage = null;
-          
-          // Check if we've entered guidance mode
-          if (data['ready_for_guidance'] == true || data['mode'] == 'conversational') {
-            _isInGuidanceMode = true;
-          }
-          
-          // Update guidance mode based on response
-          if (data['current_step'] != null || data['conversation_length'] != null) {
-            _isInGuidanceMode = true;
-          }
-          
-        } else {
-          print('Error response: ${response.body}');
-          try {
-            final errorData = json.decode(response.body);
-            String errorMessage = errorData['error'] ?? 'Unknown error occurred';
-            
-            // Handle specific error cases
-            if (response.statusCode == 400 && errorMessage.contains('Not in guidance mode')) {
-              _isInGuidanceMode = false;
-              _addAIMessage("Let me analyze your repair issue first. Please describe what's broken or upload an image.");
-            } else {
-              _addAIMessage("Sorry, I encountered an issue: $errorMessage");
-            }
-          } catch (e) {
-            _addAIMessage("Sorry, I encountered a server error. Let me try to help with what I know...");
-          }
-        }
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isTyping = false;
-        });
-        _addAIMessage("Connection error. Let me try to help based on what you've described...");
-        _generateMockResponse(message);
-      }
-      print('API request error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to take photo')),
+      );
     }
   }
 
-  void _generateMockResponse(String userMessage) {
-    // Fallback mock responses when API is unavailable
-    String response;
-    final lowerMessage = userMessage.toLowerCase();
-    
-    if (lowerMessage.contains('broken') || lowerMessage.contains('not working')) {
-      response = "I understand something is broken. While I can't see the full details right now, can you describe what exactly isn't working? Is it making sounds, not turning on, or something else?";
-    } else if (lowerMessage.contains('leak') || lowerMessage.contains('drip')) {
-      response = "Water leaks can cause damage quickly. First, turn off the water supply if possible. Can you tell me where exactly you see the leak coming from?";
-    } else if (lowerMessage.contains('wire') || lowerMessage.contains('electric')) {
-      response = "⚠️ SAFETY FIRST: Please turn off the electrical power at the circuit breaker before we continue. Safety is our top priority with electrical issues.";
-    } else if (lowerMessage.contains('screen') || lowerMessage.contains('display')) {
-      response = "For display issues, try these steps: 1) Force restart by holding power button for 10 seconds, 2) Check all cable connections. What happens when you try these?";
-    } else {
-      response = "I want to help you fix this! Can you give me more specific details about what's wrong? The more information you provide, the better I can assist you.";
+  Future<void> _pickImage() async {
+    try {
+      final XFile? image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+      );
+      
+      if (image != null) {
+        setState(() {
+          selectedImage = File(image.path);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to pick image')),
+      );
     }
-    
-    _addAIMessage(response);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Camera Preview Section
-            Container(
-              height: MediaQuery.of(context).size.height * 0.4,
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey[300]!, width: 2),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: _buildCameraContent(),
-              ),
-            ),
-            
-            // Chat Interface Section
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.grey[200]!),
+      body: Stack(
+        children: [
+          // Main chat area with slide animation
+          AnimatedBuilder(
+            animation: _chatSlideAnimation,
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(
+                  MediaQuery.of(context).size.width * _chatSlideAnimation.value.dx,
+                  0,
                 ),
-                child: Column(
-                  children: [
-                    // Chat header
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(16),
-                          topRight: Radius.circular(16),
+                child: Container(
+                  width: MediaQuery.of(context).size.width,
+                  child: _buildChatArea(),
+                ),
+              );
+            },
+          ),
+          
+          // Sidebar overlay - only show when open
+          if (isSidebarOpen)
+            AnimatedBuilder(
+              animation: _sidebarAnimation,
+              builder: (context, child) {
+                return Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: MediaQuery.of(context).size.width * _sidebarAnimation.value,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(2, 0),
                         ),
+                      ],
+                    ),
+                    child: ClipRect(
+                      child: _buildSidebar(),
+                    ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChatArea() {
+    return SafeArea(
+      child: Column(
+        children: [
+          // Chat header with floating sessions button
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                // Floating sessions button
+                Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.history, color: Colors.white),
+                    onPressed: _toggleSidebar,
+                    tooltip: 'Previous Sessions',
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    currentSession?.title ?? 'New Session',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Messages area
+          Expanded(
+            child: messages.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Start a conversation with your AI repair assistant',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
                       ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              shape: BoxShape.circle,
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final message = messages[index];
+                      return _buildMessageBubble(message);
+                    },
+                  ),
+          ),
+          
+                     // Loading indicator
+           if (isLoading)
+             Container(
+               padding: const EdgeInsets.all(16),
+               child: Row(
+                 children: [
+                   Container(
+                     width: 32,
+                     height: 32,
+                     decoration: BoxDecoration(
+                       color: AppColors.primary,
+                       borderRadius: BorderRadius.circular(16),
+                     ),
+                     child: const Icon(
+                       Icons.smart_toy,
+                       color: Colors.white,
+                       size: 20,
+                     ),
+                   ),
+                   const SizedBox(width: 8),
+                   Expanded(
+                     child: Text(
+                       loadingDots,
+                       style: const TextStyle(
+                         fontSize: 14,
+                         color: Colors.grey,
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+          
+          // Input area
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // Image preview (if image is selected)
+                if (selectedImage != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: Row(
+                      children: [
+                        // Mini image preview
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(4),
+                            image: DecorationImage(
+                              image: FileImage(selectedImage!),
+                              fit: BoxFit.cover,
                             ),
-                            child: _isConnecting 
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.smart_toy,
-                                    color: AppColors.primary,
-                                    size: 24,
-                                  ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'AI Repair Assistant',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                Text(
-                                  _isConnecting 
-                                      ? 'Connecting...' 
-                                      : (_sessionId != null ? 'Online • Multi-Agent Ready' : 'Offline • Basic Help Available'),
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (_sessionId != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.green,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'CONNECTED',
+                        ),
+                        const SizedBox(width: 8),
+                        // Image info
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Image selected',
                                 style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    
-                    // Chat messages
-                    Expanded(
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _messages.length + (_isTyping ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (index == _messages.length && _isTyping) {
-                            return _buildTypingIndicator();
-                          }
-                          return _buildChatMessage(_messages[index]);
-                        },
-                      ),
-                    ),
-                    
-                    // Input area
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[50],
-                        border: Border(
-                          top: BorderSide(color: Colors.grey[200]!),
+                              Text(
+                                path.basename(selectedImage!.path),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey[500],
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      child: Row(
+                        // Remove image button
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                          onPressed: () {
+                            setState(() {
+                              selectedImage = null;
+                            });
+                          },
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                        ),
+                      ],
+                    ),
+                  ),
+                
+                // Input row
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // If width is too small, show a simplified input
+                    if (constraints.maxWidth < 200) {
+                      return Row(
                         children: [
+                          // Camera button
+                          IconButton(
+                            icon: const Icon(Icons.camera_alt, color: Colors.blue, size: 20),
+                            onPressed: _showImageOptions,
+                            padding: const EdgeInsets.all(8),
+                            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                          ),
+                          const SizedBox(width: 4),
+                          
+                          // Text input
                           Expanded(
                             child: TextField(
                               controller: _messageController,
                               decoration: InputDecoration(
-                                hintText: _sessionId != null 
-                                    ? 'Describe the repair problem to the AI...'
-                                    : 'Describe your problem (offline mode)...',
+                                hintText: 'Message...',
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(24),
+                                  borderRadius: BorderRadius.circular(20),
                                   borderSide: BorderSide.none,
                                 ),
                                 filled: true,
-                                fillColor: Colors.white,
+                                fillColor: Colors.grey[100],
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                              ),
+                              maxLines: 1,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) => _sendMessage(),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          
+                          // Send button
+                          IconButton(
+                            icon: const Icon(Icons.send, color: AppColors.primary, size: 20),
+                            onPressed: _sendMessage,
+                            padding: const EdgeInsets.all(8),
+                            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                          ),
+                        ],
+                      );
+                    } else {
+                      // Normal input for larger screens
+                      return Row(
+                        children: [
+                          // Camera button
+                          IconButton(
+                            icon: const Icon(Icons.camera_alt, color: Colors.blue),
+                            onPressed: _showImageOptions,
+                          ),
+                          const SizedBox(width: 8),
+                          
+                          // Text input
+                          Expanded(
+                            child: TextField(
+                              controller: _messageController,
+                              decoration: InputDecoration(
+                                hintText: 'Type your message...',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                  borderSide: BorderSide.none,
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey[100],
                                 contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16,
                                   vertical: 12,
                                 ),
                               ),
                               maxLines: null,
-                              textCapitalization: TextCapitalization.sentences,
+                              textInputAction: TextInputAction.send,
                               onSubmitted: (_) => _sendMessage(),
                             ),
                           ),
                           const SizedBox(width: 8),
+                          
+                          // Send button
                           IconButton(
+                            icon: const Icon(Icons.send, color: AppColors.primary),
                             onPressed: _sendMessage,
-                            icon: const Icon(Icons.send),
-                            style: IconButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.all(12),
-                            ),
                           ),
                         ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCameraContent() {
-    if (_useMockCamera || _cameraError != null) {
-      return _buildMockCamera();
-    }
-    
-    if (_isCameraInitialized && _cameraController != null) {
-      return Stack(
-        children: [
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: _cameraController!.value.previewSize!.width+50,
-              height: _cameraController!.value.previewSize!.height+265,
-              child: CameraPreview(_cameraController!),
-            ),
-          ),
-          _buildCameraOverlay(),
-        ],
-      );
-    }
-    
-    return _buildLoadingCamera();
-  }
-
-  Widget _buildMockCamera() {
-    return Container(
-      color: Colors.grey[800],
-      child: Stack(
-        children: [
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.camera_alt_outlined,
-                  size: 64,
-                  color: Colors.grey[400],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  _cameraError ?? 'Camera Preview',
-                  style: TextStyle(
-                    color: Colors.grey[300],
-                    fontSize: 16,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'The AI can still help based on your description',
-                  style: TextStyle(
-                    color: Colors.grey[400],
-                    fontSize: 12,
-                  ),
-                  textAlign: TextAlign.center,
+                      );
+                    }
+                  },
                 ),
               ],
             ),
           ),
-          _buildCameraOverlay(),
         ],
       ),
     );
   }
 
-  Widget _buildLoadingCamera() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(
+  Widget _buildSidebar() {
+    return Column(
+      children: [
+        // Sidebar header
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
             color: AppColors.primary,
           ),
-          SizedBox(height: 16),
-          Text(
-            'Initializing camera...',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCameraOverlay() {
-    return Stack(
-      children: [
-        // AI status indicator
-        Positioned(
-          top: 16,
-          left: 16,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 6,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _sessionId != null ? AppColors.secondary : Colors.orange,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  _sessionId != null 
-                      ? (_useMockCamera ? 'AI Connected' : 'AI Watching')
-                      : 'AI Offline',
-                  style: const TextStyle(
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Sessions',
+                  style: TextStyle(
                     color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ],
-            ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: _toggleSidebar,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+              ),
+            ],
           ),
         ),
-        // Capture/retry button
-        Positioned(
-          bottom: 16,
-          right: 16,
-          child: FloatingActionButton(
-            mini: true,
-            backgroundColor: AppColors.primary,
-            onPressed: () {
-              if (_useMockCamera && _cameraError != null) {
-                // Retry camera initialization
-                setState(() {
-                  _useMockCamera = false;
-                  _cameraError = null;
-                  _isCameraInitialized = false;
-                });
-                _initializeCamera();
-              } else {
-                _captureAndUploadImage();
-              }
-            },
-            child: Icon(
-              _useMockCamera && _cameraError != null ? Icons.refresh : Icons.camera_alt,
-              color: Colors.white,
-              size: 20,
+        
+        // Sessions list
+        Expanded(
+          child: sessions.isEmpty
+              ? const Center(
+                  child: Text(
+                    'No previous sessions',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: sessions.length,
+                  itemBuilder: (context, index) {
+                    final session = sessions[index];
+                    final isSelected = currentSession?.id == session.id;
+                    
+                                         return Container(
+                       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                       decoration: BoxDecoration(
+                         color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.transparent,
+                         borderRadius: BorderRadius.circular(8),
+                       ),
+                       child: Material(
+                         color: Colors.transparent,
+                         child: InkWell(
+                           borderRadius: BorderRadius.circular(8),
+                           onTap: () => _selectSession(session),
+                           child: Padding(
+                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                             child: Row(
+                               children: [
+                                 Icon(
+                                   isSelected ? Icons.chat_bubble : Icons.chat_bubble_outline,
+                                   color: isSelected ? AppColors.primary : Colors.grey,
+                                   size: 18,
+                                 ),
+                                 const SizedBox(width: 8),
+                                 Expanded(
+                                   child: Column(
+                                     crossAxisAlignment: CrossAxisAlignment.start,
+                                     children: [
+                                       Text(
+                                         session.title,
+                                         style: TextStyle(
+                                           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                           color: isSelected ? AppColors.primary : Colors.black,
+                                           fontSize: 13,
+                                         ),
+                                         overflow: TextOverflow.ellipsis,
+                                       ),
+                                       Text(
+                                         '${session.messages.length} messages',
+                                         style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                         overflow: TextOverflow.ellipsis,
+                                       ),
+                                     ],
+                                   ),
+                                 ),
+                                 if (sessions.length > 1) // Don't show delete for last session
+                                   IconButton(
+                                     onPressed: () => _deleteSession(session),
+                                     icon: const Icon(Icons.delete_outline, size: 16),
+                                     tooltip: 'Delete Session',
+                                     color: Colors.red,
+                                     padding: EdgeInsets.zero,
+                                     constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                                   ),
+                               ],
+                             ),
+                           ),
+                         ),
+                       ),
+                     );
+                  },
+                ),
+        ),
+        
+        // New session button
+        Container(
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _createNewSession();
+                _toggleSidebar();
+              },
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('New Session', style: TextStyle(fontSize: 14)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
             ),
           ),
         ),
@@ -681,49 +1185,56 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
     );
   }
 
-  Widget _buildChatMessage(ChatMessage message) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+  Widget _buildMessageBubble(ChatMessage message) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
       child: Row(
-        mainAxisAlignment: message.isUser 
-            ? MainAxisAlignment.end 
-            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: message.isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         children: [
           if (!message.isUser) ...[
             Container(
               width: 32,
               height: 32,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.primary,
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(16),
               ),
               child: const Icon(
                 Icons.smart_toy,
                 color: Colors.white,
-                size: 16,
+                size: 20,
               ),
             ),
             const SizedBox(width: 8),
           ],
+          
           Flexible(
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: message.isUser 
-                    ? AppColors.primary 
-                    : Colors.grey[100],
+                color: message.isUser ? AppColors.primary : Colors.white,
                 borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Text(
                 message.message,
                 style: TextStyle(
-                  color: message.isUser ? Colors.white : AppColors.text,
+                  color: message.isUser ? Colors.white : Colors.black,
                   fontSize: 14,
                 ),
               ),
             ),
           ),
+          
           if (message.isUser) ...[
             const SizedBox(width: 8),
             Container(
@@ -731,12 +1242,12 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
               height: 32,
               decoration: BoxDecoration(
                 color: Colors.grey[300],
-                shape: BoxShape.circle,
+                borderRadius: BorderRadius.circular(16),
               ),
               child: const Icon(
                 Icons.person,
                 color: Colors.grey,
-                size: 16,
+                size: 20,
               ),
             ),
           ],
@@ -744,61 +1255,27 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen> {
       ),
     );
   }
+}
 
-  Widget _buildTypingIndicator() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: const BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.smart_toy,
-              color: Colors.white,
-              size: 16,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Colors.grey[600]!,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  _sessionId != null ? 'AI agents are analyzing...' : 'AI is thinking...',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 14,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+class ChatSession {
+  final String id;
+  final String title;
+  final DateTime timestamp;
+  List<ChatMessage> messages;
+
+  ChatSession({
+    required this.id,
+    required this.title,
+    required this.timestamp,
+    required this.messages,
+  });
+
+  void addMessage(ChatMessage message) {
+    messages.add(message);
+  }
+
+  void updateMessages(List<ChatMessage> newMessages) {
+    messages = List.from(newMessages);
   }
 }
 

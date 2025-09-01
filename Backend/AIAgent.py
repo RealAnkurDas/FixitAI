@@ -1044,6 +1044,196 @@ class SimpleRepairAssistant:
     def analyze_repair_parallel(self, user_input: str, image_data: Optional[str] = None) -> Dict[str, Any]:
         """Synchronous interface for parallel repair analysis"""
         return asyncio.run(self.system.analyze_repair_request_parallel(user_input, image_data))
+    
+    def analyze_repair_demo(self, user_input: str, image_data: Optional[str] = None) -> Dict[str, Any]:
+        """Demo version that simulates multi-agent workflow with fake progress"""
+        import time
+        import random
+        
+        start_time = time.time()
+        
+        # Simulate progress messages with random timing
+        progress_steps = [
+            "🔍 Running research agent...",
+            "📚 Checking iFixit manuals...",
+            "📖 Checking WikiHow guides...",
+            "🔧 Searching repair databases...",
+            "📋 Collecting results...",
+            "🧠 Analyzing findings...",
+            "⚙️ Crafting repair plan...",
+            "✅ Finalizing solution..."
+        ]
+        
+        # Randomly select 5-8 steps and add random delays
+        selected_steps = random.sample(progress_steps, random.randint(5, 8))
+        
+        for step in selected_steps:
+            # Random delay between 0.5 and 2 seconds
+            delay = random.uniform(0.5, 2.0)
+            time.sleep(delay)
+            print(f"DEMO: {step}")
+        
+        # Generate a simple response without LLM to avoid hanging
+        guidance = self._generate_simple_guidance(user_input)
+        
+        processing_time = time.time() - start_time
+        
+        return {
+            'success': True,
+            'guidance': guidance,
+            'overall_confidence': 0.85,
+            'processing_time': processing_time,
+            'agent_results': {
+                'demo_vision': {'success': True, 'confidence': 0.8, 'processing_time': 1.2},
+                'demo_research': {'success': True, 'confidence': 0.9, 'processing_time': 2.1},
+                'demo_planning': {'success': True, 'confidence': 0.85, 'processing_time': 1.8}
+            }
+        }
+    
+    def _call_llm(self, prompt: str) -> str:
+        """Simple LLM call for demo"""
+        try:
+            # Use the same LLM setup as the real system (Ollama)
+            llm = ChatOllama(
+                model="qwen2.5vl:7b",
+                base_url=OLLAMA_BASE_URL,
+                temperature=0.3
+            )
+            
+            # Simple direct call without complex timeout handling
+            response = llm.invoke([HumanMessage(content=prompt)])
+            return response.content
+                
+        except Exception as e:
+            print(f"LLM call error: {e}")
+            return ""
+    
+    def _clean_markdown(self, text: str) -> str:
+        """Remove markdown formatting from text while preserving line breaks"""
+        import re
+        
+        # Remove bold formatting **text** -> text
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+        
+        # Remove italic formatting *text* -> text
+        text = re.sub(r'\*(.*?)\*', r'\1', text)
+        
+        # Remove code formatting `text` -> text
+        text = re.sub(r'`(.*?)`', r'\1', text)
+        
+        # Remove any remaining markdown links [text](url) -> text
+        text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+        
+        # Clean up extra whitespace but preserve line breaks
+        # Replace multiple spaces with single space, but keep newlines
+        text = re.sub(r'[ \t]+', ' ', text)
+        # Remove extra newlines (more than 2 consecutive)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        # Clean up leading/trailing whitespace
+        text = text.strip()
+        
+        return text
+
+    def _generate_simple_guidance(self, user_input: str) -> str:
+        """Generate simple guidance without LLM for demo"""
+        user_input_lower = user_input.lower()
+        
+        # Simple device and problem detection
+        device = "device"
+        if "iphone" in user_input_lower or "phone" in user_input_lower:
+            device = "iPhone"
+        elif "laptop" in user_input_lower or "computer" in user_input_lower:
+            device = "laptop"
+        elif "tablet" in user_input_lower:
+            device = "tablet"
+        
+        problem = "issue"
+        if "crack" in user_input_lower or "break" in user_input_lower:
+            problem = "cracked screen"
+        elif "battery" in user_input_lower or "charge" in user_input_lower:
+            problem = "battery issue"
+        elif "turn on" in user_input_lower or "power" in user_input_lower:
+            problem = "won't turn on"
+        elif "water" in user_input_lower:
+            problem = "water damage"
+        
+        # Generate appropriate guidance based on device and problem
+        if "screen" in problem or "crack" in problem:
+            return f"""Here's how to fix your {device} {problem}:
+
+1. Power off the device completely
+2. Remove any protective case or cover
+3. Clean the screen surface gently
+4. If cracked, consider professional replacement
+5. Test touch functionality after repair
+
+Tools needed: microfiber cloth, screen protector (optional)
+
+Safety: Avoid sharp edges, work in well-lit area
+
+Helpful resources: Check iFixit.com for detailed guides"""
+        
+        elif "battery" in problem:
+            return f"""Here's how to fix your {device} {problem}:
+
+1. Power off the device completely
+2. Check charging cable and adapter
+3. Try different power outlet
+4. Clean charging port gently
+5. If problem persists, consider battery replacement
+
+Tools needed: charging cable, cotton swab, isopropyl alcohol
+
+Safety: Avoid liquid contact, use proper tools
+
+Helpful resources: Check manufacturer's support website"""
+        
+        elif "turn on" in problem:
+            return f"""Here's how to fix your {device} {problem}:
+
+1. Check power source and connections
+2. Try hard reset procedure
+3. Remove and reinsert battery (if removable)
+4. Check for visible damage
+5. If still not working, seek professional help
+
+Tools needed: screwdriver (if needed), patience
+
+Safety: Work in well-lit area, avoid static electricity
+
+Helpful resources: Check device manual or manufacturer support"""
+        
+        else:
+            return f"""Here's how to fix your {device} {problem}:
+
+1. Power off the device completely
+2. Check for visible damage or loose connections
+3. Try basic troubleshooting steps
+4. Clean device surfaces gently
+5. If problem persists, seek professional help
+
+Tools needed: basic tools, microfiber cloth
+
+Safety: Work in well-lit area, avoid static electricity
+
+Helpful resources: Check manufacturer's website for specific guides"""
+
+    def _generate_fallback_guidance(self, user_input: str) -> str:
+        """Generate fallback guidance if LLM fails"""
+        return f"""Based on your issue: {user_input}
+
+Here's a general repair approach:
+
+1. Power off the device completely
+2. Check for visible damage or loose connections
+3. Try basic troubleshooting steps
+4. If problem persists, seek professional help
+
+Tools needed: basic tools, patience
+
+Safety: Work in well-lit area, avoid static electricity
+
+Helpful resources: Check manufacturer's website for specific guides"""
 
 # Global instance for backward compatibility
 repair_assistant = SimpleRepairAssistant()

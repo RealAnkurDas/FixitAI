@@ -225,8 +225,8 @@ def analyze_repair(session_id):
             'has_image': image_data is not None
         })
         
-        # Process through the multi-agent system
-        result = assistant.analyze_repair(user_input, image_data)
+        # Process through the demo multi-agent system (simulated)
+        result = assistant.analyze_repair_demo(user_input, image_data)
         
         # Add assistant response to conversation history
         session_data['conversation_history'].append({
@@ -244,13 +244,7 @@ def analyze_repair(session_id):
             'response': result['guidance'],
             'overall_confidence': result['overall_confidence'],
             'processing_time': result['processing_time'],
-            'agent_results': {
-                agent: {
-                    'success': agent_result.success,
-                    'confidence': agent_result.confidence,
-                    'processing_time': agent_result.processing_time
-                } for agent, agent_result in result['agent_results'].items()
-            }
+            'agent_results': result['agent_results']
         })
         
     except Exception as e:
@@ -289,7 +283,7 @@ def conversational_guidance(session_id):
         
         # For now, just run another analysis with the follow-up question
         # In a more sophisticated system, you'd want to maintain conversation context
-        result = assistant.analyze_repair(user_message, None)
+        result = assistant.analyze_repair_demo(user_message, None)
         
         # Add assistant response to conversation history
         session_data['conversation_history'].append({
