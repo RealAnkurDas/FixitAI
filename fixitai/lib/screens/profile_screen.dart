@@ -26,11 +26,47 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   final ImagePicker _imagePicker = ImagePicker();
   final PostService _postService = PostService();
   final SocialService _socialService = SocialService();
+  
+  Map<String, int> _userStats = {
+    'repairCount': 0,
+    'totalLikes': 0,
+    'followersCount': 0,
+  };
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _loadUserStats();
+  }
+
+  bool _isLoadingStats = false;
+  
+  Future<void> _loadUserStats() async {
+    if (_isLoadingStats) return; // Prevent multiple simultaneous loads
+    
+    final userId = _auth.currentUser?.uid;
+    if (userId != null) {
+      setState(() {
+        _isLoadingStats = true;
+      });
+      
+      try {
+        final stats = await _socialService.getUserStats(userId);
+        if (mounted) {
+          setState(() {
+            _userStats = stats;
+            _isLoadingStats = false;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isLoadingStats = false;
+          });
+        }
+      }
+    }
   }
 
   @override
@@ -117,14 +153,33 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                     ),
                     const SizedBox(height: 16),
                     
-                    // User Name
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.text,
-                      ),
+                    // User Name and Refresh Button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.text,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          onPressed: _isLoadingStats ? null : _loadUserStats,
+                          icon: _isLoadingStats 
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.refresh, size: 20),
+                          tooltip: 'Refresh Stats',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     
@@ -175,9 +230,9 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildStatItem('Fixes', '47'),
-                        _buildStatItem('Likes', '234'),
-                        _buildStatItem('Followers', '89'),
+                        _buildStatItem('Fixes', '${_userStats['repairCount']}'),
+                        _buildStatItem('Likes', '${_userStats['totalLikes']}'),
+                        _buildStatItem('Followers', '${_userStats['followersCount']}'),
                       ],
                     ),
                   ],
@@ -334,6 +389,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     }
 
     return StreamBuilder<List<PostModel>>(
+      key: ValueKey('my-fixes-$userId'),
       stream: _postService.getUserPosts(userId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -447,7 +503,9 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   Widget _buildSavedTab() {
+    final userId = _auth.currentUser?.uid;
     return StreamBuilder<List<PostModel>>(
+      key: ValueKey('saved-posts-$userId'),
       stream: _postService.getSavedPosts(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

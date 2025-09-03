@@ -77,10 +77,39 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
     
     for (final userId in userIds) {
       if (!_userProfiles.containsKey(userId)) {
-        final userProfile = await _socialService.getUserProfile(userId);
-        if (userProfile != null) {
+        try {
+          final userProfile = await _socialService.getUserProfile(userId);
+          if (userProfile != null) {
+            setState(() {
+              _userProfiles[userId] = userProfile;
+            });
+          } else {
+            // Create a default user profile if none exists
+            final defaultProfile = UserModel(
+              id: userId,
+              email: 'unknown@example.com',
+              displayName: 'Unknown User',
+              photoURL: null,
+              createdAt: DateTime.now(),
+              lastActive: DateTime.now(),
+            );
+            setState(() {
+              _userProfiles[userId] = defaultProfile;
+            });
+          }
+        } catch (e) {
+          print('Error loading user profile for $userId: $e');
+          // Create a default user profile on error
+          final defaultProfile = UserModel(
+            id: userId,
+            email: 'unknown@example.com',
+            displayName: 'Unknown User',
+            photoURL: null,
+            createdAt: DateTime.now(),
+            lastActive: DateTime.now(),
+          );
           setState(() {
-            _userProfiles[userId] = userProfile;
+            _userProfiles[userId] = defaultProfile;
           });
         }
       }

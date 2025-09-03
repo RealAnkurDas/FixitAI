@@ -136,6 +136,25 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       final userId = _auth.currentUser?.uid;
       if (userId == null) throw Exception('User not authenticated');
 
+      // Ensure user profile exists
+      if (_currentUser == null) {
+        final user = _auth.currentUser;
+        if (user != null) {
+          final userProfile = UserModel(
+            id: user.uid,
+            email: user.email ?? '',
+            displayName: user.displayName ?? 'User',
+            photoURL: user.photoURL,
+            createdAt: DateTime.now(),
+            lastActive: DateTime.now(),
+          );
+          await _socialService.createUserProfile(userProfile);
+          setState(() {
+            _currentUser = userProfile;
+          });
+        }
+      }
+
       final post = PostModel(
         id: _socialService.generateId(),
         userId: userId,

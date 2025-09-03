@@ -401,4 +401,38 @@ class SocialService {
   bool isPostLikedByUser(PostModel post, String userId) {
     return post.likedBy.contains(userId);
   }
+
+  // Get user statistics
+  Future<Map<String, int>> getUserStats(String userId) async {
+    try {
+      // Get user's posts
+      final postsSnapshot = await _firestore
+          .collection('posts')
+          .where('userId', isEqualTo: userId)
+          .get();
+      
+      int totalLikes = 0;
+      for (var doc in postsSnapshot.docs) {
+        final post = PostModel.fromMap(doc.data());
+        totalLikes += post.likedBy.length;
+      }
+      
+      // Get user profile
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final userData = userDoc.data();
+      
+      return {
+        'repairCount': userData?['repairCount'] ?? 0,
+        'totalLikes': totalLikes,
+        'followersCount': userData?['followersCount'] ?? 0,
+      };
+    } catch (e) {
+      print('Error getting user stats: $e');
+      return {
+        'repairCount': 0,
+        'totalLikes': 0,
+        'followersCount': 0,
+      };
+    }
+  }
 }
