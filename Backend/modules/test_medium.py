@@ -148,15 +148,15 @@ def search_medium_advanced(search_query: str, max_articles: int = 10) -> List[Di
         cx = os.getenv("GOOGLE_PSE_CX")
         
         if not api_key or not cx:
-            print("❌ Google PSE API key or CX not set in environment variables")
-            print("   Please set GOOGLE_PSE_API_KEY and GOOGLE_PSE_CX in your .env file")
+            #print("❌ Google PSE API key or CX not set in environment variables")
+            #print("   Please set GOOGLE_PSE_API_KEY and GOOGLE_PSE_CX in your .env file")
             return []
         
         # Use the search query directly since PSE is configured for Medium only
         google_query = search_query
         
-        print(f"🔍 Google PSE search for: '{google_query}'")
-        print("=" * 60)
+        #print(f"🔍 Google PSE search for: '{google_query}'")
+        #print("=" * 60)
         
         # Build the search service
         service = build("customsearch", "v1", developerKey=api_key)
@@ -176,13 +176,13 @@ def search_medium_advanced(search_query: str, max_articles: int = 10) -> List[Di
             title = item.get('title', '')
             snippet = item.get('snippet', '')
             
-            print(f"📝 Result {i}:")
-            print(f"   Title: {title}")
-            print(f"   URL: {url}")
-            print(f"   Snippet: {snippet[:100]}...")
+            #print(f"📝 Result {i}:")
+            #print(f"   Title: {title}")
+            #print(f"   URL: {url}")
+            #print(f"   Snippet: {snippet[:100]}...")
             
             # All results are from Medium since PSE is configured for Medium only
-            print(f"✅ Medium article found!")
+            #print(f"✅ Medium article found!")
             
             # Extract author from URL
             author_match = re.search(r'/@([^/]+)/', url)
@@ -192,8 +192,8 @@ def search_medium_advanced(search_query: str, max_articles: int = 10) -> List[Di
             clean_title = title.split(' - Medium')[0]  # Remove " - Medium" suffix if present
             clean_title = clean_title.split(' | by ')[0]  # Remove " | by Author" if present
             
-            print(f"👤 Author: {author}")
-            print(f"📰 Clean Title: {clean_title}")
+            #print(f"👤 Author: {author}")
+            #print(f"📰 Clean Title: {clean_title}")
             
             # Add to article list (all results are valid Medium articles)
             article_links.append({
@@ -202,29 +202,30 @@ def search_medium_advanced(search_query: str, max_articles: int = 10) -> List[Di
                 'author': author,
                 'snippet': snippet
             })
-            print(f"✅ Added to article list!")
+            #print(f"✅ Added to article list!")
             
-            print("-" * 40)
+            #print("-" * 40)
         
         # No need to remove duplicates as Google PSE doesn't return duplicates
         unique_links = article_links[:max_articles]
         
         # Step 3: Use LLM to select the most relevant article
         if unique_links:
-            print(f"Found {len(unique_links)} Medium articles, using LLM to select most relevant...")
+            #print(f"Found {len(unique_links)} Medium articles, using LLM to select most relevant...")
             
             # Create title mapping for display
             for i, article in enumerate(unique_links, 1):
-                print(f"  {i}. {article['title']}")
-                print(f"     Author: {article['author']}")
-                print(f"     URL: {article['url']}")
+                #print(f"  {i}. {article['title']}")
+                #print(f"     Author: {article['author']}")
+                #print(f"     URL: {article['url']}")
+                pass
             
             # Let LLM choose the best article
             selected_index = select_best_article_with_llm(search_query, unique_links)
             selected_article = unique_links[selected_index]
             
-            print(f"\n🤖 LLM selected article {selected_index + 1}: {selected_article['title']}")
-            print(f"    By: {selected_article['author']}")
+            #print(f"\n🤖 LLM selected article {selected_index + 1}: {selected_article['title']}")
+            #print(f"    By: {selected_article['author']}")
             
             # Step 4: Extract content from the selected article only
             try:
@@ -232,12 +233,13 @@ def search_medium_advanced(search_query: str, max_articles: int = 10) -> List[Di
                 if article_data:
                     return [article_data]  # Return the single selected article
             except Exception as e:
-                print(f"Error extracting selected article: {e}")
+                pass
+                #print(f"Error extracting selected article: {e}")
         
         return []
         
     except Exception as e:
-        print(f"Error in Medium search: {e}")
+        #print(f"Error in Medium search: {e}")
         return []
 
 def extract_medium_article(url: str, title: str, author: str) -> Optional[Dict]:
@@ -276,7 +278,7 @@ def extract_medium_article(url: str, title: str, author: str) -> Optional[Dict]:
         }
         
     except Exception as e:
-        print(f"Error extracting Medium article {url}: {e}")
+        #print(f"Error extracting Medium article {url}: {e}")
         return None
 
 def extract_medium_content(soup: BeautifulSoup) -> List[Dict]:
@@ -508,13 +510,13 @@ def test_medium_connectivity():
     ]
     
     # Test the exact format
-    print("\n🧪 Testing Medium Search Output Format...")
-    print("=" * 50)
+    #print("\n🧪 Testing Medium Search Output Format...")
+    #print("=" * 50)
     
     # Test all queries from test_queries
     for test_query in test_queries:
-        print(f"\n🔍 Testing: {test_query}")
-        print(f"📊 Max articles: 5")
+        #print(f"\n🔍 Testing: {test_query}")
+        #print(f"📊 Max articles: 5")
         
         try:
             import time
@@ -524,31 +526,35 @@ def test_medium_connectivity():
             elapsed = end - start
            
             if articles:
-                print(f"\n✅ Success! Generated Medium guide in {elapsed:.2f} seconds")
-                print("\n📋 Medium Guide Content:")
-                print("=" * 60)
+                #print(f"\n✅ Success! Generated Medium guide in {elapsed:.2f} seconds")
+                #print("\n📋 Medium Guide Content:")
+                #print("=" * 60)
                 
                 # Since we return only one selected article, just show its content
                 article = articles[0]  # Get the first (and only) article
-                print(article['content'][0]['content'])
-                print("=" * 60)
+                #print(article['content'][0]['content'])
+                #print("=" * 60)
                 
-                print(f"\n📊 Content Info:")
-                print(f"  - Length: {len(article['content'][0]['content'])} characters")
-                print(f"  - Processing time: {elapsed:.2f} seconds")
-                print(f"  - Author: {article['author']}")
-                print(f"  - Source: {article['url']}")
+                #print(f"\n📊 Content Info:")
+                #print(f"  - Length: {len(article['content'][0]['content'])} characters")
+                #print(f"  - Processing time: {elapsed:.2f} seconds")
+                #print(f"  - Author: {article['author']}")
+                #print(f"  - Source: {article['url']}")
                 
             else:
-                print("❌ No Medium articles found for the test query")
+                pass
+                #print("❌ No Medium articles found for the test query")
                 
         except Exception as e:
-            print(f"❌ Error in format test: {str(e)}")
-            print(f"🔍 Error type: {type(e).__name__}")
+            pass
+            #print(f"❌ Error in format test: {str(e)}")
+            #print(f"🔍 Error type: {type(e).__name__}")
         
-        print("-" * 50)
+        pass
+        #print("-" * 50)
     
-    print("=" * 50)
+    pass
+    #print("=" * 50)
 
 if __name__ == "__main__":
     test_medium_connectivity()

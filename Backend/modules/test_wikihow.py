@@ -182,6 +182,7 @@ def search_wikihow_advanced(search_query: str, max_articles: int = 5) -> List[Di
         
         # Step 3: Use LLM to select the most relevant article
         if unique_links:
+            print("Wikihow")
             print(f"Found {len(unique_links)} articles, using LLM to select most relevant...")
             
             # Create title mapping for display

@@ -30,16 +30,15 @@ load_dotenv()
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 
 
-# Define the state schema
+# Define the state schema - FIX: Remove potential conflicts
 class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], operator.add]
     query: str
-    query_type: str
+    problem_statement: str
     wikihow_results: Dict[str, Any]
     ifixit_results: Dict[str, Any]
     medium_results: Dict[str, Any]
     final_response: str
-    next_action: str
 
 
 # Query type classification
@@ -77,71 +76,29 @@ class FinalResponse(BaseModel):
 
 
 # =============================================================================
-# ORCHESTRATOR AGENT
+# PROBLEM IDENTIFICATION NODE
 # =============================================================================
 
-def orchestrator_agent(state: AgentState) -> AgentState:
+def problem_identification_node(state: AgentState) -> AgentState:
     """
-    Decides what type of content is needed based on the query
+    Simple pass-through node that just copies the query to problem_statement
     """
-    query = state["query"]
+    # Create a new state dict to avoid mutation issues
+    new_state = state.copy()
+    new_state["problem_statement"] = state["query"]
     
-    # Create LLM instance
-    llm = ChatOllama(
-        model="qwen2.5vl:7b",
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.3
-    )
-    
-    # LLM-based classification
-    classification_prompt = ChatPromptTemplate.from_template("""
-    Analyze this query and determine what type of content would be most helpful.
-    
-    Query: {query}
-    
-    Choose from these exact values:
-    - wikihow: For how-to guides, step-by-step tutorials, learning new skills, general DIY tasks
-    - ifixit: For device repair guides, troubleshooting, teardowns, hardware repair
-    - medium: For detailed articles, technical guides, programming tutorials, in-depth explanations
-    
-    Return ONLY the exact value (e.g., "wikihow", "ifixit", "medium") with no additional text or formatting.
-    """)
-    
-    try:
-        # Simple synchronous LLM call
-        response = llm.invoke([HumanMessage(content=classification_prompt.format(query=query))])
-        classification_result = response.content.strip().lower()
-        
-        # Map the LLM response to query type
-        if classification_result == "wikihow":
-            query_type = QueryType.WIKIHOW
-        elif classification_result == "ifixit":
-            query_type = QueryType.IFIXIT
-        elif classification_result == "medium":
-            query_type = QueryType.MEDIUM
-        else:
-            # Default to wikihow for general queries
-            query_type = QueryType.WIKIHOW
-        
-    except Exception as e:
-        # Fallback to wikihow
-        query_type = QueryType.WIKIHOW
-    
-    state["query_type"] = query_type.value
-    state["next_action"] = f"run_{query_type.value}_agent"
-    
-    return state
+    return new_state
 
 
 # =============================================================================
-# SPECIALIZED AGENTS
+# SPECIALIZED AGENTS - FIX: Return only the specific key each node should update
 # =============================================================================
 
-def wikihow_node(state: AgentState) -> AgentState:
+def wikihow_node(state: AgentState) -> Dict[str, Any]:
     """
     Searches WikiHow and returns results in correct format to next agent
     """
-    query = state["query"]
+    query = state["problem_statement"]
     
     try:
         # Use the working WikiHow search module
@@ -182,17 +139,15 @@ def wikihow_node(state: AgentState) -> AgentState:
             success=False
         )
     
-    state["wikihow_results"] = result.model_dump()
-    state["next_action"] = "aggregator"
-    
-    return state
+    # Return only the key this node should update
+    return {"wikihow_results": result.model_dump()}
 
 
-def ifixit_node(state: AgentState) -> AgentState:
+def ifixit_node(state: AgentState) -> Dict[str, Any]:
     """
     Searches iFixit website using LangChain document loader and returns results in correct format
     """
-    query = state["query"]
+    query = state["problem_statement"]
     
     try:
         # Use the working iFixit search module
@@ -233,17 +188,15 @@ def ifixit_node(state: AgentState) -> AgentState:
             success=False
         )
     
-    state["ifixit_results"] = result.model_dump()
-    state["next_action"] = "aggregator"
-    
-    return state
+    # Return only the key this node should update
+    return {"ifixit_results": result.model_dump()}
 
 
-def medium_node(state: AgentState) -> AgentState:
+def medium_node(state: AgentState) -> Dict[str, Any]:
     """
     Searches Medium articles using Google PSE and returns results in correct format
     """
-    query = state["query"]
+    query = state["problem_statement"]
     
     try:
         # Use the working Medium search module
@@ -284,33 +237,33 @@ def medium_node(state: AgentState) -> AgentState:
             success=False
         )
     
-    state["medium_results"] = result.model_dump()
-    state["next_action"] = "aggregator"
-    
-    return state
+    # Return only the key this node should update
+    return {"medium_results": result.model_dump()}
 
 
 # =============================================================================
 # AGGREGATOR/SUMMARIZER AGENT
 # =============================================================================
 
-def aggregator_agent(state: AgentState) -> AgentState:
+def aggregator_agent(state: AgentState) -> Dict[str, Any]:
     """
     Combines results from multiple sources into coherent instructions
     """
     query = state["query"]
-    query_type = state["query_type"]
+    problem_statement = state["problem_statement"]
     
-    # Collect all available results
+    # Collect all available results and extract URLs
     all_results = []
-    sources = []
+    all_sources = []
     
     for result_key in ["wikihow_results", "ifixit_results", "medium_results"]:
         if result_key in state and state[result_key]:
             result_data = state[result_key]
             if result_data.get("success"):
                 all_results.append(result_data)
-                sources.extend(result_data.get("source_urls", []))
+                # Extract URLs from the source_urls field
+                source_urls = result_data.get("source_urls", [])
+                all_sources.extend(source_urls)
     
     # Create LLM instance for aggregation
     llm = ChatOllama(
@@ -321,185 +274,152 @@ def aggregator_agent(state: AgentState) -> AgentState:
     
     # LLM-based aggregation
     aggregation_prompt = ChatPromptTemplate.from_template("""
-    Synthesize the following information into one coherent instruction set.
+    You are an expert repair technician analyzing information from multiple sources to create the best possible solution.
     
     Original Query: {query}
-    Query Type: {query_type}
+    Problem Statement: {problem_statement}
     
-    Available Information:
+    Available Information from Multiple Sources:
     {results_summary}
     
-    Create a comprehensive, specific repair guide that includes:
-    1. Clear step-by-step instructions tailored to the specific problem
-    2. Specific difficulty rating (1-10) based on the complexity
-    3. Relevant safety tips specific to this repair
-    4. Realistic time estimate based on the task
-    5. Specific tools needed for this repair
-    6. Specific materials or parts needed
+    CRITICAL EVALUATION TASK:
+    First, evaluate each source for usefulness:
+    1. Rate each source (1-10) for relevance and quality of information
+    2. Identify which source provides the most practical, actionable steps
+    3. Note any sources that are too generic, irrelevant, or unhelpful
+    4. Prioritize sources with specific, detailed instructions over vague ones
     
-    Make the guide specific to the query - don't use generic language.
-    If this is about a specific device (like iPhone, Samsung, etc.), mention the specific model.
-    If this is about a specific problem (like overheating, screen replacement), make the steps specific to that issue.
+    SOURCE EVALUATION CRITERIA:
+    - Specificity: Does it address the exact problem mentioned?
+    - Actionability: Are the steps clear and doable?
+    - Completeness: Does it cover tools, materials, safety, and time estimates?
+    - Accuracy: Does the information seem technically sound?
+    - Practicality: Is it realistic for a DIY repair?
     
-    Format your response as a structured guide with clear sections and specific details.
+    INSTRUCTIONS:
+    Based on your evaluation, create a solution that:
+    1. Uses the BEST information from the most useful sources
+    2. IGNORES or minimally uses information from poor sources
+    3. Combines the strongest elements from multiple good sources
+    
+    OUTPUT FORMAT - Use EXACTLY this structure:
+    
+    Steps to fix your [specific problem]:
+    1. [First step]
+    2. [Second step]
+    3. [Third step]
+    [Continue with numbered steps as needed]
+    
+    Tools Needed:
+    1. [Tool 1]
+    2. [Tool 2]
+    [Continue with numbered tools as needed]
+    
+    Materials Needed:
+    1. [Material 1]
+    2. [Material 2]
+    [Continue with numbered materials as needed]
+    
+    Sources:
+    1. [Source URL 1]
+    2. [Source URL 2]
+    [Continue with numbered sources as needed]
+    
+    IMPORTANT: 
+    - Replace "[specific problem]" with the actual problem from the query
+    - Make steps specific and actionable
+    - List only essential tools and materials
+    - Include all source URLs that provided useful information
+    - Use numbered lists only
+    - No additional text, explanations, or sections
     """)
     
     try:
-        # Prepare results summary for LLM
+        # Prepare results summary for LLM with clear source identification
         results_summary = ""
         for i, result in enumerate(all_results, 1):
             content = result.get("content", "")
             metadata = result.get("metadata", {})
-            results_summary += f"Source {i}: {content}\n"
+            source_name = metadata.get("source", f"Source {i}")
+            success = result.get("success", False)
+            source_urls = result.get("source_urls", [])
+            
+            results_summary += f"=== {source_name.upper()} (Source {i}) ===\n"
+            results_summary += f"Success: {'✅ YES' if success else '❌ NO'}\n"
+            results_summary += f"Content: {content}\n"
+            if source_urls:
+                results_summary += f"Source URLs: {', '.join(source_urls)}\n"
             if metadata:
-                results_summary += f"Metadata: {metadata}\n"
+                results_summary += f"Additional Info: {metadata}\n"
             results_summary += "\n"
+        
+        # Debug: Print available sources
+        print(f"DEBUG: Available sources: {all_sources}")
         
         # Simple synchronous LLM call
         response = llm.invoke([HumanMessage(content=aggregation_prompt.format(
             query=query,
-            query_type=query_type,
+            problem_statement=problem_statement,
             results_summary=results_summary
         ))])
         instructions = response.content
         
-        # Extract structured information from LLM response using another LLM call
-        extraction_prompt = f"""Extract the following information from this repair guide. Return ONLY a JSON object with these exact keys:
-
-Repair Guide:
-{instructions}
-
-Return this JSON format (no additional text):
-{{
-    "difficulty_rating": <number 1-10>,
-    "estimated_time": "<time estimate>",
-    "safety_tips": ["tip1", "tip2", "tip3"],
-    "tools_needed": ["tool1", "tool2"],
-    "materials_needed": ["material1", "material2"]
-}}
-
-If any information is not found, use reasonable defaults."""
-        
-        try:
-            extraction_response = llm.invoke([HumanMessage(content=extraction_prompt)])
-            extraction_text = extraction_response.content.strip()
+        # Always ensure ALL sources are included
+        if all_sources:
+            # Remove any existing Sources section and replace with complete list
+            import re
+            # Remove existing sources section if it exists
+            instructions = re.sub(r'\n\nSources:.*$', '', instructions, flags=re.DOTALL)
             
-            # Try to parse JSON response
-            import json
-            try:
-                extracted_data = json.loads(extraction_text)
-                difficulty = extracted_data.get("difficulty_rating", 5)
-                estimated_time = extracted_data.get("estimated_time", "30-90 minutes")
-                safety_tips = extracted_data.get("safety_tips", [
-                    "Always wear protective equipment",
-                    "Work in a well-ventilated area",
-                    "Have emergency contacts ready"
-                ])
-                tools_needed = extracted_data.get("tools_needed", [])
-                materials_needed = extracted_data.get("materials_needed", [])
-            except json.JSONDecodeError:
-                # Fallback if JSON parsing fails
-                difficulty = 5
-                estimated_time = "30-90 minutes"
-                safety_tips = [
-                    "Always wear protective equipment",
-                    "Work in a well-ventilated area",
-                    "Have emergency contacts ready"
-                ]
-                tools_needed = []
-                materials_needed = []
-                
-        except Exception as e:
-            # Fallback values
-            difficulty = 5
-            estimated_time = "30-90 minutes"
-            safety_tips = [
-                "Always wear protective equipment",
-                "Work in a well-ventilated area",
-                "Have emergency contacts ready"
-            ]
-            tools_needed = []
-            materials_needed = []
+            # Add complete sources section
+            sources_section = "\n\nSources:\n"
+            for i, source in enumerate(all_sources, 1):
+                sources_section += f"{i}. {source}\n"
+            instructions += sources_section
         
     except Exception as e:
         # Fallback instructions
         instructions = f"Unable to process query: {query}. Please try again."
-        difficulty = 5
-        safety_tips = ["Always wear protective equipment", "Work in a well-ventilated area"]
+        if all_sources:
+            sources_section = "\n\nSources:\n"
+            for i, source in enumerate(all_sources, 1):
+                sources_section += f"{i}. {source}\n"
+            instructions += sources_section
     
-    final_response = FinalResponse(
-        instructions=instructions,
-        difficulty_rating=difficulty,
-        safety_tips=safety_tips,
-        sources=list(set(sources)),  # Remove duplicates
-        estimated_time=estimated_time,
-        tools_needed=tools_needed,
-        materials_needed=materials_needed
-    )
-    
-    state["final_response"] = final_response.model_dump_json()
-    state["next_action"] = "end"
-    
-    return state
+    # Return only the clean instructions
+    return {"final_response": instructions}
 
 
 # =============================================================================
-# ROUTING LOGIC
-# =============================================================================
-
-def route_next_action(state: AgentState) -> str:
-    """
-    Determines the next node to execute based on state
-    """
-    next_action = state.get("next_action", "")
-    
-    if next_action.startswith("run_"):
-        # Extract the agent name from "run_agentname_agent" format
-        agent_name = next_action.replace("run_", "").replace("_agent", "")
-        return agent_name
-    elif next_action == "aggregator":
-        return "aggregator"
-    elif next_action == "end":
-        return END
-    else:
-        return "orchestrator"
-
-
-# =============================================================================
-# GRAPH CONSTRUCTION
+# GRAPH CONSTRUCTION - FIX: Use conditional routing to handle parallel execution properly
 # =============================================================================
 
 def create_multiagent_graph():
     """
-    Creates and returns the LangGraph workflow
+    Creates and returns the LangGraph workflow with parallel execution
     """
     # Initialize the graph
     workflow = StateGraph(AgentState)
     
     # Add nodes
-    workflow.add_node("orchestrator", orchestrator_agent)
+    workflow.add_node("problem_identification", problem_identification_node)
     workflow.add_node("wikihow", wikihow_node)
     workflow.add_node("ifixit", ifixit_node)
     workflow.add_node("medium", medium_node)
     workflow.add_node("aggregator", aggregator_agent)
     
     # Set entry point
-    workflow.set_entry_point("orchestrator")
+    workflow.set_entry_point("problem_identification")
     
-    # Add conditional routing from orchestrator
-    workflow.add_conditional_edges(
-        "orchestrator",
-        route_next_action,
-        {
-            "wikihow": "wikihow",
-            "ifixit": "ifixit", 
-            "medium": "medium"
-        }
-    )
+    # Sequential to parallel: problem_identification -> all 3 agents
+    workflow.add_edge("problem_identification", "wikihow")
+    workflow.add_edge("problem_identification", "ifixit") 
+    workflow.add_edge("problem_identification", "medium")
     
-    # All specialized agents route to aggregator
-    for agent_name in ["wikihow", "ifixit", "medium"]:
-        workflow.add_edge(agent_name, "aggregator")
+    # Parallel to aggregator: all agents -> aggregator
+    workflow.add_edge("wikihow", "aggregator")
+    workflow.add_edge("ifixit", "aggregator")
+    workflow.add_edge("medium", "aggregator")
     
     # Aggregator routes to end
     workflow.add_edge("aggregator", END)
@@ -525,12 +445,11 @@ def run_multiagent_system(query: str):
     initial_state = {
         "messages": [HumanMessage(content=query)],
         "query": query,
-        "query_type": "",
+        "problem_statement": "",
         "wikihow_results": {},
         "ifixit_results": {},
         "medium_results": {},
-        "final_response": "",
-        "next_action": ""
+        "final_response": ""
     }
     
     # Run the workflow
@@ -540,91 +459,32 @@ def run_multiagent_system(query: str):
 
 
 if __name__ == "__main__":
-    print("🧪 Testing Multi-Agent System...")
-    print("=" * 50)
+    import time
+    
+    # Test with a simple query
+    test_query = "How to fix a leaky faucet"
     
     try:
-        # Test 1: LLM connectivity
-        print("1️⃣ Testing LLM connectivity...")
-        llm = ChatOllama(
-            model="qwen2.5vl:7b",
-            base_url=OLLAMA_BASE_URL,
-            temperature=0.3
-        )
+        # Start timing
+        start_time = time.time()
         
-        test_prompt = "What is 2+2? Answer with just the number."
-        response = llm.invoke([HumanMessage(content=test_prompt)])
-        print(f"   ✅ LLM test successful: {response.content}")
+        # Run the multi-agent system
+        result = run_multiagent_system(test_query)
         
-        # Test 2: Generate Mermaid diagram
-        print("\n2️⃣ Generating Mermaid diagram...")
-        try:
-            workflow = create_multiagent_graph()
-            mermaid_code = workflow.get_graph().draw_mermaid()
-            print("📊 Mermaid Diagram:")
-            print("=" * 50)
-            print(mermaid_code)
-            print("=" * 50)
-            print("💡 Copy the above Mermaid code to visualize your workflow!")
-        except Exception as mermaid_error:
-            print(f"   ⚠️  Could not generate Mermaid diagram: {mermaid_error}")
+        # End timing
+        end_time = time.time()
+        elapsed_time = end_time - start_time
         
-        # Test 3: Full multi-agent system
-        print("\n3️⃣ Testing full multi-agent system...")
+        # Show only the final response
+        if result.get("final_response"):
+            print(result["final_response"])
+        else:
+            print("No response generated")
         
-        # Test different types of queries
-        test_queries = [
-            "How to fix a leaky faucet",
-            "iPhone 12 screen replacement guide",
-            "How to build a website from scratch"
-        ]
-        
-        for i, query in enumerate(test_queries, 1):
-            print(f"\n🔍 Query: {query}")
-            print("=" * 60)
-            
-            try:
-                import time
-                start_time = time.time()
-                
-                # Run the full multi-agent system
-                result = run_multiagent_system(query)
-                
-                end_time = time.time()
-                elapsed_time = end_time - start_time
-                
-                # Show only the final response
-                if result.get("final_response"):
-                    try:
-                        final_data = result["final_response"]
-                        if isinstance(final_data, str):
-                            import json
-                            final_data = json.loads(final_data)
-                        
-                        print(final_data.get('instructions', 'No instructions available'))
-                        print(f"\n⏱️  Time taken: {elapsed_time:.2f} seconds")
-                        
-                    except Exception as parse_error:
-                        print("Error processing response")
-                        print(f"\n⏱️  Time taken: {elapsed_time:.2f} seconds")
-                
-            except Exception as agent_error:
-                print("Error: Unable to process query")
-                if 'elapsed_time' in locals():
-                    print(f"\n⏱️  Time taken: {elapsed_time:.2f} seconds")
-        
-        print("\n🎉 All tests completed!")
-        print("=" * 50)
-        print("📋 Summary:")
-        print("   • LLM integration: ✅ Working")
-        print("   • Mermaid diagram: ✅ Generated")
-        print("   • Multi-agent system: ✅ Working")
-        print("   • Agent routing: ✅ Working")
-        print("   • Result aggregation: ✅ Working")
+        # Show timing
+        print(f"\n⏱️ Total time: {elapsed_time:.2f} seconds")
         
     except Exception as e:
-        print(f"❌ Test failed: {str(e)}")
-        print(f"🔍 Error type: {type(e).__name__}")
-        print("Make sure Ollama is running and accessible at the configured URL.")
-        print("Check that all required packages are installed:")
-        print("   pip install langgraph langchain-ollama python-dotenv")
+        print(f"Error: {str(e)}")
+        if 'elapsed_time' in locals():
+            print(f"⏱️ Time before error: {elapsed_time:.2f} seconds")
