@@ -56,8 +56,8 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
   int currentProgressIndex = 0;
   bool showingProgress = false;
   
-  // API Configuration
-  static const String baseUrl = 'http://192.168.1.47:5000/api';
+  // API Configuration - Updated to use FixAgent API
+  static const String baseUrl = 'http://192.168.1.47:8000/api';
 
   @override
   void initState() {
@@ -128,6 +128,11 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
             messages.add(ChatMessage(
               message: messageData['message'],
               isUser: messageData['isUser'],
+              imageFile: null, // Images can't be saved to SharedPreferences, so they'll be lost on restart
+              responseSource: messageData['responseSource'],
+              localRepairLinks: messageData['localRepairLinks'] != null 
+                  ? List<String>.from(messageData['localRepairLinks']) 
+                  : null,
             ));
           }
           
@@ -166,6 +171,8 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
             return {
               'message': message.message,
               'isUser': message.isUser,
+              'responseSource': message.responseSource,
+              'localRepairLinks': message.localRepairLinks,
             };
           }).toList(),
         });
@@ -249,6 +256,12 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
             content: Text('Failed to create session. Please check your connection and try again.'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              bottom: MediaQuery.of(context).size.height - 150,
+              left: 16,
+              right: 16,
+            ),
           ),
         );
       }
@@ -274,6 +287,7 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         final historyMessages = history.map((msg) => ChatMessage(
           message: msg['message'],
           isUser: msg['isUser'],
+          imageFile: null, // Images from backend history won't have file references
         )).toList();
         
         setState(() {
@@ -362,9 +376,15 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Session deleted successfully'),
+          SnackBar(
+            content: const Text('Session deleted successfully'),
             backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              bottom: MediaQuery.of(context).size.height - 150,
+              left: 16,
+              right: 16,
+            ),
           ),
         );
       }
@@ -374,6 +394,12 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
           SnackBar(
             content: Text('Failed to delete session: $e'),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(
+              bottom: MediaQuery.of(context).size.height - 150,
+              left: 16,
+              right: 16,
+            ),
           ),
         );
       }
@@ -395,16 +421,24 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
   }
 
   Future<void> _sendMessage() async {
+    // Don't send if no text and no image, or if only image without text
     if (_messageController.text.trim().isEmpty && selectedImage == null) return;
+    if (selectedImage != null && _messageController.text.trim().isEmpty) return;
 
     String messageText = _messageController.text.trim();
-    if (selectedImage != null && messageText.isEmpty) {
-      messageText = "📷 [Image uploaded]";
-    }
+    
+    // Store image reference before clearing it
+    final imageToSend = selectedImage;
+    
+    // Debug: Print current state
+    print('DEBUG: Sending message: "$messageText"');
+    print('DEBUG: Current sessionId: $sessionId');
+    print('DEBUG: Has image: ${imageToSend != null}');
 
     final userMessage = ChatMessage(
       message: messageText,
       isUser: true,
+      imageFile: imageToSend, // Include the selected image
     );
 
     setState(() {
@@ -420,7 +454,7 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     _saveSessions();
 
     _messageController.clear();
-    selectedImage = null;
+    selectedImage = null; // Clear the UI reference
     _scrollToBottom();
 
     try {
@@ -439,47 +473,32 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         }
       }
 
-      // Send message to the correct endpoint
+      // Send message with image and text together
       http.Response response;
       
-      if (selectedImage != null) {
-        // Upload image first
-        final uploadRequest = http.MultipartRequest(
+      if (imageToSend != null) {
+        // Send image and text together in one request
+        final multipartRequest = http.MultipartRequest(
           'POST',
-          Uri.parse('$baseUrl/upload'),
+          Uri.parse('$baseUrl/session/$sessionId/analyze'),
         );
 
-        uploadRequest.fields['session_id'] = sessionId!;
+        // Add session_id and message as fields
+        multipartRequest.fields['message'] = messageText;
 
-        final imageStream = http.ByteStream(selectedImage!.openRead());
-        final imageLength = await selectedImage!.length();
+        // Add image file
+        final imageStream = http.ByteStream(imageToSend.openRead());
+        final imageLength = await imageToSend.length();
         final multipartFile = http.MultipartFile(
           'image',
           imageStream,
           imageLength,
-          filename: path.basename(selectedImage!.path),
+          filename: path.basename(imageToSend.path),
         );
-        uploadRequest.files.add(multipartFile);
+        multipartRequest.files.add(multipartFile);
 
-        final uploadResponse = await uploadRequest.send();
-        final uploadResponseBody = await http.Response.fromStream(uploadResponse);
-
-        if (uploadResponseBody.statusCode == 200) {
-          final uploadData = json.decode(uploadResponseBody.body);
-          final filename = uploadData['filename'];
-
-          // Send analysis request with image
-          response = await http.post(
-            Uri.parse('$baseUrl/session/$sessionId/analyze'),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode({
-              'message': messageText,
-              'image_filename': filename,
-            }),
-          );
-        } else {
-          throw Exception('Failed to upload image');
-        }
+        final streamedResponse = await multipartRequest.send();
+        response = await http.Response.fromStream(streamedResponse);
       } else {
         // Send text-only message
         response = await http.post(
@@ -496,6 +515,10 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         final aiMessage = ChatMessage(
           message: data['response'] ?? 'Sorry, I encountered an error.',
           isUser: false,
+          responseSource: data['response_source'],
+          localRepairLinks: data['local_repair_links'] != null 
+              ? List<String>.from(data['local_repair_links']) 
+              : null,
         );
 
         setState(() {
@@ -511,6 +534,7 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         _addErrorMessage('Failed to get response from AI');
       }
     } catch (e) {
+      print('DEBUG: Error in _sendMessage: $e');
       _addErrorMessage('Connection error. Please check your internet connection.');
     } finally {
       setState(() {
@@ -521,103 +545,6 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     }
   }
 
-  Future<void> _sendImageWithMessage(File imageFile) async {
-    final userMessage = ChatMessage(
-      message: "📷 [Image uploaded]",
-      isUser: true,
-    );
-
-    setState(() {
-      messages.add(userMessage);
-      if (currentSession != null) {
-        currentSession!.messages.add(userMessage);
-      }
-      isLoading = true;
-    });
-    _startLoadingAnimation();
-
-    _scrollToBottom();
-
-    try {
-      // First ensure we have a session
-      if (sessionId == null) {
-        final sessionResponse = await http.post(
-          Uri.parse('$baseUrl/session'),
-          headers: {'Content-Type': 'application/json'},
-        );
-        
-        if (sessionResponse.statusCode == 200) {
-          final sessionData = json.decode(sessionResponse.body);
-          sessionId = sessionData['session_id'];
-        } else {
-          throw Exception('Failed to create session');
-        }
-      }
-
-      // First upload the image
-      final uploadRequest = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/upload'),
-      );
-
-      uploadRequest.fields['session_id'] = sessionId!;
-
-      final imageStream = http.ByteStream(imageFile.openRead());
-      final imageLength = await imageFile.length();
-      final multipartFile = http.MultipartFile(
-        'image',
-        imageStream,
-        imageLength,
-        filename: path.basename(imageFile.path),
-      );
-      uploadRequest.files.add(multipartFile);
-
-      final uploadResponse = await uploadRequest.send();
-      final uploadResponseBody = await http.Response.fromStream(uploadResponse);
-
-      if (uploadResponseBody.statusCode == 200) {
-        final uploadData = json.decode(uploadResponseBody.body);
-        final filename = uploadData['filename'];
-
-        // Now send the analysis request with the uploaded image
-        final analyzeResponse = await http.post(
-          Uri.parse('$baseUrl/session/$sessionId/analyze'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'message': 'Analyze this image and help me with the repair.',
-            'image_filename': filename,
-          }),
-        );
-
-        if (analyzeResponse.statusCode == 200) {
-          final data = json.decode(analyzeResponse.body);
-          final aiMessage = ChatMessage(
-            message: data['response'] ?? 'Sorry, I encountered an error analyzing the image.',
-            isUser: false,
-          );
-
-          setState(() {
-            messages.add(aiMessage);
-            if (currentSession != null) {
-              currentSession!.messages.add(aiMessage);
-            }
-          });
-        } else {
-          _addErrorMessage('Failed to analyze image');
-        }
-      } else {
-        _addErrorMessage('Failed to upload image');
-      }
-    } catch (e) {
-      _addErrorMessage('Connection error while uploading image');
-    } finally {
-      setState(() {
-        isLoading = false;
-      });
-      _stopLoadingAnimation();
-      _scrollToBottom();
-    }
-  }
 
 
 
@@ -644,6 +571,45 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         );
       }
     });
+  }
+
+  void _showImageDialog(File imageFile) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Stack(
+            children: [
+              // Full screen image
+              Center(
+                child: InteractiveViewer(
+                  child: Image.file(
+                    imageFile,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+              // Close button
+              Positioned(
+                top: 40,
+                right: 20,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _showImageOptions() async {
@@ -692,7 +658,15 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to take photo')),
+        SnackBar(
+          content: const Text('Failed to take photo'),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(
+            bottom: MediaQuery.of(context).size.height - 100,
+            left: 16,
+            right: 16,
+          ),
+        ),
       );
     }
   }
@@ -711,7 +685,15 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to pick image')),
+        SnackBar(
+          content: const Text('Failed to pick image'),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.only(
+            bottom: MediaQuery.of(context).size.height - 100,
+            left: 16,
+            right: 16,
+          ),
+        ),
       );
     }
   }
@@ -993,11 +975,18 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
                           const SizedBox(width: 4),
                           
                           // Send button
-                          IconButton(
-                            icon: const Icon(Icons.send, color: AppColors.primary, size: 20),
-                            onPressed: _sendMessage,
-                            padding: const EdgeInsets.all(8),
-                            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _messageController,
+                            builder: (context, value, child) {
+                              return IconButton(
+                                icon: const Icon(Icons.send, color: AppColors.primary, size: 20),
+                                onPressed: (value.text.trim().isNotEmpty) 
+                                    ? _sendMessage 
+                                    : null,
+                                padding: const EdgeInsets.all(8),
+                                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                              );
+                            },
                           ),
                         ],
                       );
@@ -1037,9 +1026,16 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
                           const SizedBox(width: 8),
                           
                           // Send button
-                          IconButton(
-                            icon: const Icon(Icons.send, color: AppColors.primary),
-                            onPressed: _sendMessage,
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: _messageController,
+                            builder: (context, value, child) {
+                              return IconButton(
+                                icon: const Icon(Icons.send, color: AppColors.primary),
+                                onPressed: (value.text.trim().isNotEmpty) 
+                                    ? _sendMessage 
+                                    : null,
+                              );
+                            },
                           ),
                         ],
                       );
@@ -1185,6 +1181,62 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     );
   }
 
+  Widget _buildLocalRepairButton(List<String> repairLinks) {
+    return Container(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () => _showLocalRepairDialog(repairLinks),
+        icon: const Icon(Icons.store, size: 16),
+        label: const Text('Local Repair Stores'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showLocalRepairDialog(List<String> repairLinks) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Local Repair Stores'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: repairLinks.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  leading: const Icon(Icons.location_on),
+                  title: Text('Repair Store ${index + 1}'),
+                  subtitle: const Text('Tap to open in Google Maps'),
+                  onTap: () {
+                    // Open the Google Maps link
+                    // You might need to add url_launcher package for this
+                    print('Opening: ${repairLinks[index]}');
+                    Navigator.of(context).pop();
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildMessageBubble(ChatMessage message) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -1225,12 +1277,68 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
                   ),
                 ],
               ),
-              child: Text(
-                message.message,
-                style: TextStyle(
-                  color: message.isUser ? Colors.white : Colors.black,
-                  fontSize: 14,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Show image preview if available
+                  if (message.imageFile != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Stack(
+                        children: [
+                          GestureDetector(
+                            onTap: () => _showImageDialog(message.imageFile!),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                message.imageFile!,
+                                width: 120,
+                                height: 120,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                          // Small indicator showing image is being processed
+                          if (message.isUser) ...[
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withOpacity(0.8),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.image,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                  // Message text
+                  Text(
+                    message.message,
+                    style: TextStyle(
+                      color: message.isUser ? Colors.white : Colors.black,
+                      fontSize: 14,
+                    ),
+                  ),
+                  
+                  // Local Repair Stores button (only for AI messages that are not conversation)
+                  if (!message.isUser && 
+                      message.responseSource != "conversation" && 
+                      message.localRepairLinks != null && 
+                      message.localRepairLinks!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _buildLocalRepairButton(message.localRepairLinks!),
+                  ],
+                ],
               ),
             ),
           ),
@@ -1282,6 +1390,15 @@ class ChatSession {
 class ChatMessage {
   final String message;
   final bool isUser;
+  final File? imageFile; // Add image file support
+  final String? responseSource; // "conversation" or "problem_identification"
+  final List<String>? localRepairLinks; // Google Maps URLs for repair shops
 
-  ChatMessage({required this.message, required this.isUser});
+  ChatMessage({
+    required this.message, 
+    required this.isUser, 
+    this.imageFile,
+    this.responseSource,
+    this.localRepairLinks,
+  });
 }
