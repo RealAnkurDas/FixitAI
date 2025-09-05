@@ -326,7 +326,7 @@ def search_wikihow(query: str) -> str:
         search_url = f"https://www.wikihow.com/wikiHowTo?search={query.replace(' ', '+')}"
         headers = {"User-Agent": "RepairBot/1.0"}
         
-        response = requests.get(search_url, headers=headers, timeout=10)
+        response = requests.get(search_url, headers=headers, timeout=20)
         response.raise_for_status()
         
         soup = BeautifulSoup(response.text, "html.parser")
