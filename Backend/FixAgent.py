@@ -9,6 +9,15 @@ import os
 from dotenv import load_dotenv
 from langchain_ollama import ChatOllama
 
+# Import JSON schema utilities
+from json_schemas import (
+    ResponseType, 
+    create_llm_prompt_with_schema, 
+    process_llm_response_with_schema,
+    parse_llm_json_response,
+    convert_json_to_text
+)
+
 # Import working search modules
 import sys
 import os
@@ -46,11 +55,9 @@ class AgentState(TypedDict):
     ifixit_results: Dict[str, Any]
     medium_results: Dict[str, Any]
     tavily_results: Dict[str, Any]
-    googlemaps_results: Dict[str, Any]
-    local_repair_results: Dict[str, Any]  # Separate local repair information
     final_response: str
     response_source: str  # "conversation" or "problem_identification" - tells frontend where response came from
-    local_repair_links: List[str]  # Google Maps URLs for frontend to display in button
+    local_repair_available: bool  # True if local repair search is available
 
 
 # Query type classification
@@ -260,7 +267,7 @@ def _make_decision_text_only(query: str, llm: ChatOllama) -> str:
     """
     Make decision based on text input only (fallback method)
     """
-    decision_prompt = ChatPromptTemplate.from_template("""
+    base_prompt = f"""
     Analyze this user query to decide if this needs a conversational response or technical repair guidance.
     
     User Query: {query}
@@ -288,20 +295,25 @@ def _make_decision_text_only(query: str, llm: ChatOllama) -> str:
     - "How to fix a broken screen" → problem_identification
     - "My phone screen is cracked, what should I do to fix it?" → problem_identification
     - "What do you think is wrong with my phone?" → conversation
-    
-    Return ONLY "conversation" or "problem_identification" - no additional text.
-    """)
+    """
     
     try:
+        # Create prompt with JSON schema
+        prompt_with_schema = create_llm_prompt_with_schema(base_prompt, ResponseType.DECISION)
+        
         # Simple synchronous LLM call
-        response = llm.invoke([HumanMessage(content=decision_prompt.format(query=query))])
-        decision = response.content.strip().lower()
+        response = llm.invoke([HumanMessage(content=prompt_with_schema)])
+        
+        # Parse JSON response
+        parsed_response = parse_llm_json_response(response.content, ResponseType.DECISION)
+        decision = parsed_response.get("decision", "problem_identification")
         
         # Validate decision
         if decision not in ["conversation", "problem_identification"]:
             decision = "problem_identification"  # Default fallback
         
     except Exception as e:
+        print(f"Error in decision making: {e}")
         # Fallback to problem_identification for safety
         decision = "problem_identification"
     
@@ -339,12 +351,12 @@ def conversation_node(state: AgentState) -> Dict[str, Any]:
     
     if has_image:
         # Conversational prompt with image analysis and conversation history
-        conversation_prompt = ChatPromptTemplate.from_template("""
+        base_prompt = f"""
         You are a helpful and friendly assistant. The user has asked a question and provided an image.
         Provide a conversational, informative response that addresses their question.
         
         Previous Conversation History:
-        {conversation_history}
+        {_format_conversation_history(conversation_history)}
         
         Current User Question: {query}
         Image: [Image data provided]
@@ -366,20 +378,24 @@ def conversation_node(state: AgentState) -> Dict[str, Any]:
         - "How much warranty can I get?" + damaged device → "Based on what I can see, here's some general warranty information..."
         
         Respond naturally as if you're having a conversation with a friend, remembering what you've discussed before.
-        """)
+        """
         
         try:
+            # Create prompt with JSON schema
+            prompt_with_schema = create_llm_prompt_with_schema(base_prompt, ResponseType.CONVERSATION)
+            
             # Create message with both text and image
             from langchain_core.messages import HumanMessage
-            # Format conversation history for the prompt
-            history_text = _format_conversation_history(conversation_history)
             
             message_content = [
-                {"type": "text", "text": conversation_prompt.format(query=query, conversation_history=history_text)},
+                {"type": "text", "text": prompt_with_schema},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
             ]
             response = llm.invoke([HumanMessage(content=message_content)])
-            conversation_response = response.content.strip()
+            
+            # Parse JSON response
+            parsed_response = parse_llm_json_response(response.content, ResponseType.CONVERSATION)
+            conversation_response = parsed_response.get("response", "I'd be happy to help with your question.")
             
         except Exception as e:
             print(f"Image analysis failed in conversation node, falling back to text-only: {e}")
@@ -389,10 +405,22 @@ def conversation_node(state: AgentState) -> Dict[str, Any]:
         # Text-only conversation
         conversation_response = _generate_conversation_text_only(query, conversation_history, llm)
     
+    # Clear JSON file for LocalRepairTool (since this IS a conversation response)
+    try:
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
+        from local_repair_tool import clear_query_file
+        
+        clear_query_file()
+        print("DEBUG: Cleared JSON file for LocalRepairTool (conversation response)")
+    except Exception as e:
+        print(f"DEBUG: Failed to clear JSON file: {e}")
+    
     return {
         "conversation_response": conversation_response,
         "response_source": "conversation",
-        "local_repair_links": []  # No local repair links for conversation responses
+        "local_repair_available": False  # No local repair available for conversation responses
     }
 
 
@@ -400,12 +428,12 @@ def _generate_conversation_text_only(query: str, conversation_history: List[Dict
     """
     Generate conversational response based on text input only (fallback method)
     """
-    conversation_prompt = ChatPromptTemplate.from_template("""
+    base_prompt = f"""
     You are a helpful and friendly assistant. The user has asked a question.
     Provide a conversational, informative response that addresses their question.
     
     Previous Conversation History:
-    {conversation_history}
+    {_format_conversation_history(conversation_history)}
     
     Current User Question: {query}
     
@@ -420,21 +448,25 @@ def _generate_conversation_text_only(query: str, conversation_history: List[Dict
     8. Reference previous conversation when relevant (e.g., "As we discussed earlier...", "Remember when you mentioned...")
     
     Respond naturally as if you're having a conversation with a friend, remembering what you've discussed before.
-    """)
+    """
     
     try:
-        # Format conversation history for the prompt
-        history_text = _format_conversation_history(conversation_history)
+        # Create prompt with JSON schema
+        prompt_with_schema = create_llm_prompt_with_schema(base_prompt, ResponseType.CONVERSATION)
         
         # Simple synchronous LLM call
-        response = llm.invoke([HumanMessage(content=conversation_prompt.format(query=query, conversation_history=history_text))])
-        conversation_response = response.content.strip()
+        response = llm.invoke([HumanMessage(content=prompt_with_schema)])
+        
+        # Parse JSON response
+        parsed_response = parse_llm_json_response(response.content, ResponseType.CONVERSATION)
+        conversation_response = parsed_response.get("response", "")
         
         # Fallback if LLM fails
         if not conversation_response or len(conversation_response) < 10:
             conversation_response = f"I'd be happy to help with your question: '{query}'. Could you provide more details about what you'd like to know?"
         
     except Exception as e:
+        print(f"Error in conversation generation: {e}")
         # Fallback response
         conversation_response = f"I'd be happy to help with your question: '{query}'. Could you provide more details about what you'd like to know?"
     
@@ -489,7 +521,7 @@ def problem_identification_node(state: AgentState) -> AgentState:
     
     if has_image:
         # LLM-based problem extraction with image analysis
-        problem_extraction_prompt = ChatPromptTemplate.from_template("""
+        base_prompt = f"""
         Analyze this repair request with the provided image and create a simple, searchable query.
         
         User Input: {query}
@@ -504,19 +536,23 @@ def problem_identification_node(state: AgentState) -> AgentState:
         - Image shows cracked phone screen + "My phone is flickering" → "how to fix cracked phone screen"
         - Image shows laptop + "It won't turn on" → "how to fix laptop won't turn on"
         - Image shows device + "Battery issues" → "how to fix device battery"
-        
-        Return ONLY the clean, simple search query. No explanations, no additional text.
-        """)
+        """
         
         try:
+            # Create prompt with JSON schema
+            prompt_with_schema = create_llm_prompt_with_schema(base_prompt, ResponseType.PROBLEM_EXTRACTION)
+            
             # Create message with both text and image
             from langchain_core.messages import HumanMessage
             message_content = [
-                {"type": "text", "text": problem_extraction_prompt.format(query=query)},
+                {"type": "text", "text": prompt_with_schema},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
             ]
             response = llm.invoke([HumanMessage(content=message_content)])
-            clean_query = response.content.strip()
+            
+            # Parse JSON response
+            parsed_response = parse_llm_json_response(response.content, ResponseType.PROBLEM_EXTRACTION)
+            clean_query = parsed_response.get("clean_query", query)
             
         except Exception as e:
             print(f"Image analysis failed, falling back to text-only: {e}")
@@ -537,7 +573,7 @@ def _extract_query_from_text_only(query: str, llm: ChatOllama) -> str:
     """
     Extract search query from text input only (fallback method)
     """
-    problem_extraction_prompt = ChatPromptTemplate.from_template("""
+    base_prompt = f"""
     Extract the core problem from this user input and create a simple, searchable query.
     
     User Input: {query}
@@ -551,20 +587,25 @@ def _extract_query_from_text_only(query: str, llm: ChatOllama) -> str:
     - "My phone is flickering a lot, I've been trying to fix it, but my dog spilled coffee on it and now it won't start" → "how to fix flickering phone"
     - "I'm so frustrated! My laptop keeps overheating and shutting down randomly, I think it's because I dropped it last week" → "how to fix laptop overheating"
     - "My car won't start in the morning, it makes weird noises, I think the battery is dead but I'm not sure" → "how to fix car won't start"
-    
-    Return ONLY the clean, simple search query. No explanations, no additional text.
-    """)
+    """
     
     try:
+        # Create prompt with JSON schema
+        prompt_with_schema = create_llm_prompt_with_schema(base_prompt, ResponseType.PROBLEM_EXTRACTION)
+        
         # Simple synchronous LLM call
-        response = llm.invoke([HumanMessage(content=problem_extraction_prompt.format(query=query))])
-        clean_query = response.content.strip()
+        response = llm.invoke([HumanMessage(content=prompt_with_schema)])
+        
+        # Parse JSON response
+        parsed_response = parse_llm_json_response(response.content, ResponseType.PROBLEM_EXTRACTION)
+        clean_query = parsed_response.get("clean_query", query)
         
         # Fallback if LLM fails
         if not clean_query or len(clean_query) < 3:
             clean_query = query
         
     except Exception as e:
+        print(f"Error in problem extraction: {e}")
         # Fallback to original query
         clean_query = query
     
@@ -771,184 +812,6 @@ def tavily_node(state: AgentState) -> Dict[str, Any]:
     return {"tavily_results": result.model_dump()}
 
 
-def googlemaps_node(state: AgentState) -> Dict[str, Any]:
-    """
-    Searches for local repair shops using Google Maps Places API
-    """
-    query = state["problem_statement"]
-    
-    try:
-        # Create LLM instance to generate repair shop search query
-        llm = ChatOllama(
-            model="qwen2.5vl:7b",
-            base_url=OLLAMA_BASE_URL,
-            temperature=0.3
-        )
-        
-        # Generate repair shop search query using LLM
-        search_query_prompt = ChatPromptTemplate.from_template("""
-        Based on this repair problem, generate a search query for finding local repair shops.
-        
-        Problem: {query}
-        
-        Your task:
-        1. Identify what needs to be repaired
-        2. Create a search query in the format: "repair shop for [what needs to be repaired]"
-        
-        Examples:
-        - "how to fix cracked phone screen" → "repair shop for phone screen"
-        - "laptop won't turn on" → "repair shop for laptop"
-        - "car battery dead" → "repair shop for car battery"
-        - "iPhone charging port broken" → "repair shop for iPhone charging port"
-        
-        Return ONLY the search query in the format: "repair shop for [item]" - no additional text.
-        """)
-        
-        try:
-            response = llm.invoke([HumanMessage(content=search_query_prompt.format(query=query))])
-            repair_shop_query = response.content.strip()
-            
-            # Clean up the query
-            if not repair_shop_query or len(repair_shop_query) < 5:
-                repair_shop_query = f"repair shop for {query}"
-        except Exception as e:
-            print(f"Error generating repair shop query: {e}")
-            repair_shop_query = f"repair shop for {query}"
-        
-        print(f"DEBUG: Google Maps search query: '{repair_shop_query}'")
-        
-        # For now, use default coordinates (San Francisco) - in production, get from user location
-        # TODO: Get actual user location from request
-        default_lat = 37.7749
-        default_lng = -122.4194
-        
-        # Extract device type from query for better search
-        device_type = "phone"  # Default
-        if any(word in query.lower() for word in ["laptop", "computer", "pc"]):
-            device_type = "laptop"
-        elif any(word in query.lower() for word in ["car", "vehicle", "automobile"]):
-            device_type = "car"
-        elif any(word in query.lower() for word in ["phone", "iphone", "android", "smartphone"]):
-            device_type = "phone"
-        
-        # Use the Google Maps search module
-        places = search_repair_shops_advanced(
-            query=repair_shop_query,
-            latitude=default_lat,
-            longitude=default_lng,
-            radius=5000,  # 5km radius
-            max_results=5,
-            device_type=device_type
-        )
-        
-        print(f"DEBUG: Google Maps search returned {len(places) if places else 0} places")
-        
-        if places and len(places) > 0:
-            # Format the places into detailed content for local repair section
-            content_parts = []
-            
-            content_parts.append(f"🔧 **Local Repair Shops for {query}:**\n")
-            
-            for i, place in enumerate(places, 1):
-                place_info = f"{i}. **{place['name']}**\n"
-                place_info += f"   📍 {place['address']}\n"
-                
-                if place.get('distance_km'):
-                    place_info += f"   📏 {place['distance_km']} km away\n"
-                
-                if place.get('phone'):
-                    place_info += f"   📞 {place['phone']}\n"
-                
-                if place.get('website'):
-                    place_info += f"   🌐 {place['website']}\n"
-                
-                if place.get('rating'):
-                    place_info += f"   ⭐ {place['rating']}/5.0 rating\n"
-                
-                if place.get('business_status'):
-                    status_emoji = "🟢" if place['business_status'] == "OPERATIONAL" else "🔴"
-                    place_info += f"   {status_emoji} {place['business_status']}\n"
-                
-                content_parts.append(place_info)
-            
-            content = "\n".join(content_parts)
-            
-            # Create separate local repair results (not included in sources)
-            local_repair_data = {
-                "content": content,
-                "places": places,  # Store raw place data for detailed formatting
-                "metadata": {
-                    "source": "Google Maps",
-                    "search_type": "local_repair_shops",
-                    "places_found": len(places),
-                    "device_type": device_type,
-                    "search_radius_km": 5,
-                    "search_query": repair_shop_query,
-                    "google_maps_api": True
-                },
-                "success": True
-            }
-            
-            # Create empty result for googlemaps_results (no sources)
-            result = AgentResult(
-                content="",  # Empty content since we're using local_repair_results
-                source_urls=[],  # No sources from Google Maps
-                metadata={
-                    "source": "Google Maps",
-                    "search_type": "local_repair_shops",
-                    "places_found": len(places),
-                    "device_type": device_type,
-                    "search_radius_km": 5,
-                    "search_query": repair_shop_query,
-                    "google_maps_api": True
-                },
-                success=True
-            )
-            
-            print(f"DEBUG: Returning {len(places)} local repair shops")
-            return {
-                "googlemaps_results": result.model_dump(),
-                "local_repair_results": local_repair_data
-            }
-        else:
-            # Fallback if no results
-            result = AgentResult(
-                content="",  # Empty content since we're using local_repair_results
-                source_urls=[],  # No sources from Google Maps
-                metadata={"source": "Google Maps", "search_type": "local_repair_shops", "places_found": 0},
-                success=False
-            )
-            
-            print("DEBUG: No local repair shops found")
-            return {
-                "googlemaps_results": result.model_dump(),
-                "local_repair_results": {
-                    "content": f"🔧 **Local Repair Shops:**\nNo repair shops found for: {query}",
-                    "places": [],
-                    "metadata": {"source": "Google Maps", "places_found": 0},
-                    "success": False
-                }
-            }
-        
-    except Exception as e:
-        result = AgentResult(
-            content="",  # Empty content since we're using local_repair_results
-            source_urls=[],  # No sources from Google Maps
-            metadata={"source": "Google Maps", "error": str(e)},
-            success=False
-        )
-        
-        return {
-            "googlemaps_results": result.model_dump(),
-            "local_repair_results": {
-                "content": f"🔧 **Local Repair Shops:**\nError searching for repair shops: {str(e)}",
-                "places": [],
-                "metadata": {"source": "Google Maps", "error": str(e)},
-                "success": False
-            }
-        }
-
-
 # =============================================================================
 # AGGREGATOR/SUMMARIZER AGENT
 # =============================================================================
@@ -965,18 +828,16 @@ def aggregator_agent(state: AgentState) -> Dict[str, Any]:
     all_sources = []
     local_repair_info = None
     
-    for result_key in ["wikihow_results", "ifixit_results", "medium_results", "tavily_results", "googlemaps_results"]:
+    for result_key in ["wikihow_results", "ifixit_results", "medium_results", "tavily_results"]:
         if result_key in state and state[result_key]:
             result_data = state[result_key]
             if result_data.get("success"):
                 all_results.append(result_data)
-                # Extract URLs from the source_urls field (Google Maps has empty source_urls)
+                # Extract URLs from the source_urls field
                 source_urls = result_data.get("source_urls", [])
                 all_sources.extend(source_urls)
     
-    # Handle local repair results separately
-    if "local_repair_results" in state and state["local_repair_results"]:
-        local_repair_info = state["local_repair_results"]
+    # Local repair is now handled separately via LocalRepairTool
     
     # Create LLM instance for aggregation
     llm = ChatOllama(
@@ -984,75 +845,6 @@ def aggregator_agent(state: AgentState) -> Dict[str, Any]:
         base_url=OLLAMA_BASE_URL,
         temperature=0.3
     )
-    
-    # LLM-based aggregation
-    aggregation_prompt = ChatPromptTemplate.from_template("""
-    You are an expert repair technician analyzing information from multiple sources to create the best possible solution.
-    
-    Original Query: {query}
-    Problem Statement: {problem_statement}
-    
-    Available Information from Multiple Sources:
-    {results_summary}
-    
-    Local Repair Information:
-    {local_repair_summary}
-    
-    CRITICAL EVALUATION TASK:
-    First, evaluate each source for usefulness:
-    1. Rate each source (1-10) for relevance and quality of information
-    2. Identify which source provides the most practical, actionable steps
-    3. Note any sources that are too generic, irrelevant, or unhelpful
-    4. Prioritize sources with specific, detailed instructions over vague ones
-    
-    SOURCE EVALUATION CRITERIA:
-    - Specificity: Does it address the exact problem mentioned?
-    - Actionability: Are the steps clear and doable?
-    - Completeness: Does it cover tools, materials, safety, and time estimates?
-    - Accuracy: Does the information seem technically sound?
-    - Practicality: Is it realistic for a DIY repair?
-    
-    INSTRUCTIONS:
-    Based on your evaluation, create a solution that:
-    1. Uses the BEST information from the most useful sources
-    2. IGNORES or minimally uses information from poor sources
-    3. Combines the strongest elements from multiple good sources
-    4. Includes local repair shop information if available
-    
-    OUTPUT FORMAT - Use EXACTLY this structure:
-    
-    Steps to fix your [specific problem]:
-    1. [First step]
-    2. [Second step]
-    3. [Third step]
-    [Continue with numbered steps as needed]
-    
-    Tools Needed:
-    1. [Tool 1]
-    2. [Tool 2]
-    [Continue with numbered tools as needed]
-    
-    Materials Needed:
-    1. [Material 1]
-    2. [Material 2]
-    [Continue with numbered materials as needed]
-    
-    {local_repair_section}
-    
-    Sources:
-    1. [Source URL 1]
-    2. [Source URL 2]
-    [Continue with numbered sources as needed]
-    
-    IMPORTANT: 
-    - Replace "[specific problem]" with the actual problem from the query
-    - Make steps specific and actionable
-    - List only essential tools and materials
-    - Include local repair information if available
-    - Include all source URLs that provided useful information (but NOT Google Maps URLs)
-    - Use numbered lists only
-    - No additional text, explanations, or sections
-    """)
     
     try:
         # Prepare results summary for LLM with clear source identification
@@ -1073,43 +865,54 @@ def aggregator_agent(state: AgentState) -> Dict[str, Any]:
                 results_summary += f"Additional Info: {metadata}\n"
             results_summary += "\n"
         
-        # Prepare local repair summary
-        local_repair_summary = ""
-        local_repair_section = ""
-        
-        if local_repair_info and local_repair_info.get("success"):
-            local_repair_summary = local_repair_info.get("content", "")
-            local_repair_section = "Local Repair Shops:\n" + local_repair_info.get("content", "")
-        else:
-            local_repair_summary = "No local repair shops found."
-            local_repair_section = ""
-        
         # Debug: Print available sources
         print(f"DEBUG: Available sources: {all_sources}")
-        print(f"DEBUG: Local repair info available: {local_repair_info is not None}")
-        if local_repair_info:
-            print(f"DEBUG: Local repair success: {local_repair_info.get('success', False)}")
-            print(f"DEBUG: Local repair content length: {len(local_repair_info.get('content', ''))}")
+        
+        # LLM-based aggregation prompt with results summary
+        base_prompt = f"""
+        You are an expert repair technician analyzing information from multiple sources to create the best possible solution.
+        
+        Original Query: {query}
+        Problem Statement: {problem_statement}
+        
+        Available Information from Multiple Sources:
+        {results_summary}
+        
+        CRITICAL EVALUATION TASK:
+        First, evaluate each source for usefulness:
+        1. Rate each source (1-10) for relevance and quality of information
+        2. Identify which source provides the most practical, actionable steps
+        3. Note any sources that are too generic, irrelevant, or unhelpful
+        4. Prioritize sources with specific, detailed instructions over vague ones
+        
+        SOURCE EVALUATION CRITERIA:
+        - Specificity: Does it address the exact problem mentioned?
+        - Actionability: Are the steps clear and doable?
+        - Completeness: Does it cover tools, materials, safety, and time estimates?
+        - Accuracy: Does the information seem technically sound?
+        - Practicality: Is it realistic for a DIY repair?
+        
+        INSTRUCTIONS:
+        Based on your evaluation, create a solution that:
+        1. Uses the BEST information from the most useful sources
+        2. IGNORES or minimally uses information from poor sources
+        3. Combines the strongest elements from multiple good sources
+        
+        Create a title that describes the specific problem being fixed and provide numbered steps for the repair process.
+        Include required tools and materials. List all source URLs that provided useful information.
+        """
+        
+        # Create prompt with JSON schema
+        prompt_with_schema = create_llm_prompt_with_schema(base_prompt, ResponseType.AGGREGATION)
         
         # Simple synchronous LLM call
-        response = llm.invoke([HumanMessage(content=aggregation_prompt.format(
-            query=query,
-            problem_statement=problem_statement,
-            results_summary=results_summary,
-            local_repair_summary=local_repair_summary,
-            local_repair_section=local_repair_section
-        ))])
-        instructions = response.content
+        response = llm.invoke([HumanMessage(content=prompt_with_schema)])
         
-        # Always ensure local repair information is included if available
-        if local_repair_info and local_repair_info.get("success"):
-            import re
-            # Check if local repair section already exists
-            if "Local Repair Shops:" not in instructions:
-                # Add local repair section before sources
-                local_repair_section = "\n\nLocal Repair Shops:\n" + local_repair_info.get("content", "")
-                # Insert before sources section
-                instructions = re.sub(r'(\n\nSources:)', local_repair_section + r'\1', instructions)
+        # Parse JSON response
+        parsed_response = parse_llm_json_response(response.content, ResponseType.AGGREGATION)
+        
+        # Convert JSON to text and add sources
+        instructions = convert_json_to_text(parsed_response, ResponseType.AGGREGATION)
         
         # Always ensure ALL sources are included
         if all_sources:
@@ -1125,13 +928,9 @@ def aggregator_agent(state: AgentState) -> Dict[str, Any]:
             instructions += sources_section
         
     except Exception as e:
+        print(f"Error in aggregation: {e}")
         # Fallback instructions
         instructions = f"Unable to process query: {query}. Please try again."
-        
-        # Ensure local repair information is included even in fallback
-        if local_repair_info and local_repair_info.get("success"):
-            local_repair_section = "\n\nLocal Repair Shops:\n" + local_repair_info.get("content", "")
-            instructions += local_repair_section
         
         if all_sources:
             sources_section = "\n\nSources:\n"
@@ -1160,23 +959,14 @@ def examine_node(state: AgentState) -> Dict[str, Any]:
     all_sources = []
     local_repair_info = None
     
-    for result_key in ["wikihow_results", "ifixit_results", "medium_results", "tavily_results", "googlemaps_results"]:
+    for result_key in ["wikihow_results", "ifixit_results", "medium_results", "tavily_results"]:
         if result_key in state and state[result_key]:
             result_data = state[result_key]
             if result_data.get("success"):
                 source_urls = result_data.get("source_urls", [])
                 all_sources.extend(source_urls)
     
-    # Get local repair information separately
-    local_repair_links = []
-    if "local_repair_results" in state and state["local_repair_results"]:
-        local_repair_info = state["local_repair_results"]
-        # Extract Google Maps links from the places data
-        if local_repair_info.get("success") and local_repair_info.get("places"):
-            for place in local_repair_info["places"]:
-                if place.get("place_id"):
-                    google_maps_url = f"https://www.google.com/maps/place/?q=place_id:{place['place_id']}"
-                    local_repair_links.append(google_maps_url)
+    # Local repair is now handled separately via LocalRepairTool
     
     # Create LLM instance
     llm = ChatOllama(
@@ -1234,16 +1024,6 @@ def examine_node(state: AgentState) -> Dict[str, Any]:
             # Use the examine-based response
             final_response = examine_result
         
-        # Always ensure local repair information is included if available
-        if local_repair_info and local_repair_info.get("success"):
-            import re
-            # Check if local repair section already exists
-            if "Local Repair Shops:" not in final_response:
-                # Add local repair section before sources
-                local_repair_section = "\n\nLocal Repair Shops:\n" + local_repair_info.get("content", "")
-                # Insert before sources section
-                final_response = re.sub(r'(\n\nSources:)', local_repair_section + r'\1', final_response)
-        
         # Always ensure ALL actual sources are included (overwrite any hallucinated sources)
         if all_sources:
             import re
@@ -1260,16 +1040,6 @@ def examine_node(state: AgentState) -> Dict[str, Any]:
         # Fallback to current response
         final_response = current_response
         
-        # Ensure local repair information is included even in fallback
-        if local_repair_info and local_repair_info.get("success"):
-            import re
-            # Check if local repair section already exists
-            if "Local Repair Shops:" not in final_response:
-                # Add local repair section before sources
-                local_repair_section = "\n\nLocal Repair Shops:\n" + local_repair_info.get("content", "")
-                # Insert before sources section
-                final_response = re.sub(r'(\n\nSources:)', local_repair_section + r'\1', final_response)
-        
         # Ensure sources are included even in fallback
         if all_sources:
             import re
@@ -1279,11 +1049,60 @@ def examine_node(state: AgentState) -> Dict[str, Any]:
                 sources_section += f"{i}. {source}\n"
             final_response += sources_section
     
+    # Save query to JSON file for LocalRepairTool (since this is NOT a conversation response)
+    try:
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
+        from local_repair_tool import save_query_to_file
+        
+        save_query_to_file(query, problem_statement)
+        print("DEBUG: Saved repair query to JSON file for LocalRepairTool")
+    except Exception as e:
+        print(f"DEBUG: Failed to save query to JSON file: {e}")
+    
+    # Generate title and extract item name using LLM
+    print(f"DEBUG: About to extract item name for query: {query}")
+    item_name = _extract_item_name(query)
+    print(f"DEBUG: Extracted item name: {item_name}")
+    
+    print(f"DEBUG: About to generate post title for query: {query}")
+    post_title = _generate_post_title(query, final_response)
+    print(f"DEBUG: Generated post title: {post_title}")
+    
+    # Save LLM-generated data to JSON file for frontend to access
+    try:
+        import json
+        import os
+        from datetime import datetime
+        
+        post_data = {
+            "query": query,
+            "item_name": item_name,
+            "post_title": post_title,
+            "final_response": final_response,
+            "timestamp": datetime.now().isoformat(),
+            "user_id": None  # Can be populated if user_id is available
+        }
+        
+        # Save to JSON file
+        json_file_path = os.path.join(os.path.dirname(__file__), "post_data.json")
+        with open(json_file_path, 'w', encoding='utf-8') as f:
+            json.dump(post_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"DEBUG: Saved post data to {json_file_path}")
+        print(f"DEBUG: Post data: {post_data}")
+        
+    except Exception as e:
+        print(f"DEBUG: Failed to save post data to JSON file: {e}")
+    
     # Return the final response with metadata for frontend
     return {
         "final_response": final_response,
         "response_source": "problem_identification",
-        "local_repair_links": local_repair_links
+        "local_repair_available": True,  # Changed from local_repair_links to local_repair_available
+        "item_name": item_name,
+        "post_title": post_title
     }
 
 
@@ -1307,7 +1126,6 @@ def create_multiagent_graph():
     workflow.add_node("ifixit", ifixit_node)
     workflow.add_node("medium", medium_node)
     workflow.add_node("tavily", tavily_node)
-    workflow.add_node("googlemaps", googlemaps_node)
     workflow.add_node("aggregator", aggregator_agent)
     workflow.add_node("examine", examine_node)
     
@@ -1330,19 +1148,17 @@ def create_multiagent_graph():
     # Conversation node routes directly to end
     workflow.add_edge("conversation", END)
     
-    # Sequential to parallel: problem_identification -> all 5 agents
+    # Sequential to parallel: problem_identification -> all 4 agents
     workflow.add_edge("problem_identification", "wikihow")
     workflow.add_edge("problem_identification", "ifixit") 
     workflow.add_edge("problem_identification", "medium")
     workflow.add_edge("problem_identification", "tavily")
-    workflow.add_edge("problem_identification", "googlemaps")
     
     # Parallel to aggregator: all agents -> aggregator
     workflow.add_edge("wikihow", "aggregator")
     workflow.add_edge("ifixit", "aggregator")
     workflow.add_edge("medium", "aggregator")
     workflow.add_edge("tavily", "aggregator")
-    workflow.add_edge("googlemaps", "aggregator")
     
     # Aggregator to examine: aggregator -> examine
     workflow.add_edge("aggregator", "examine")
@@ -1390,17 +1206,129 @@ def run_multiagent_system(query: str, image_data: Optional[str] = None, conversa
         "ifixit_results": {},
         "medium_results": {},
         "tavily_results": {},
-        "googlemaps_results": {},
-        "local_repair_results": {},  # Add local repair results field
         "final_response": "",
         "response_source": "",  # Will be set by conversation or examine node
-        "local_repair_links": []  # Will be populated with Google Maps URLs
+        "local_repair_available": False  # Will be set based on response source
     }
     
     # Run the workflow
     result = app.invoke(initial_state)
     
     return result
+
+
+def _extract_item_name(user_input: str) -> str:
+    """Extract item name from user input using LLM"""
+    try:
+        print(f"DEBUG: Starting item name extraction for: {user_input}")
+        from langchain_ollama import ChatOllama
+        from langchain_core.messages import HumanMessage
+        
+        # Use the same LLM setup as the main system
+        llm = ChatOllama(
+            model="qwen2.5vl:7b",
+            base_url="http://100.94.111.126:11434",
+            temperature=0.3
+        )
+        
+        prompt = f"""Extract the main item/device name from this repair request.
+
+User input: "{user_input}"
+
+Return ONLY the item name (e.g., "iPhone", "laptop", "chair", "bicycle", "TV").
+Do not include model numbers or additional details.
+If unclear, return "device".
+
+Item name:"""
+
+        print(f"DEBUG: Calling LLM for item name extraction")
+        response = llm.invoke([HumanMessage(content=prompt)])
+        print(f"DEBUG: LLM response for item name: '{response.content}'")
+        
+        result = response.content.strip() if response.content.strip() else "device"
+        print(f"DEBUG: Final item name: '{result}'")
+        return result
+    except Exception as e:
+        print(f"ERROR extracting item name: {e}")
+        import traceback
+        traceback.print_exc()
+        return "device"
+
+def _generate_post_title(user_input: str, guidance: str) -> str:
+    """Generate a short, engaging title for social media post using LLM"""
+    try:
+        print(f"DEBUG: Starting title generation for: {user_input}")
+        from langchain_ollama import ChatOllama
+        from langchain_core.messages import HumanMessage
+        
+        # Use the same LLM setup as the main system
+        llm = ChatOllama(
+            model="qwen2.5vl:7b",
+            base_url="http://100.94.111.126:11434",
+            temperature=0.3
+        )
+        
+        prompt = f"""Create a very short social media post title for a repair success story.
+
+User input: "{user_input}"
+
+Repair guidance: "{guidance[:200]}..."
+
+REQUIREMENTS:
+- EXACTLY 3-4 words only
+- No quotes, no punctuation
+- Positive and encouraging
+- Mention what was fixed
+
+GOOD EXAMPLES:
+Fixed iPhone Screen
+Chair Fixed
+Laptop Working
+Bike Repaired
+TV Fixed
+Watch Working
+
+BAD EXAMPLES (too long):
+How I Fixed My Broken iPhone Screen
+Successfully Repaired My Laptop Computer
+My Washing Machine is Now Working Perfectly
+
+Respond with ONLY the title, no quotes, no extra text:"""
+
+        print(f"DEBUG: Calling LLM for title generation")
+        response = llm.invoke([HumanMessage(content=prompt)])
+        print(f"DEBUG: LLM response for title: '{response.content}'")
+        
+        title = response.content.strip() if response.content.strip() else "Repair Success!"
+        
+        # Remove extra quotes if present
+        if title.startswith('"') and title.endswith('"'):
+            title = title[1:-1]
+        elif title.startswith("'") and title.endswith("'"):
+            title = title[1:-1]
+        
+        # Remove any trailing punctuation except exclamation marks
+        title = title.rstrip('.,;:')
+        
+        # Ensure title is 3-4 words maximum
+        words = title.split()
+        if len(words) > 4:
+            title = ' '.join(words[:4])
+        elif len(words) < 2:
+            # If too short, use a default
+            title = "Repair Success"
+        
+        # Final validation - ensure it's not too long
+        if len(title) > 50:
+            title = "Repair Success"
+        
+        print(f"DEBUG: Final title: '{title}' (length: {len(title)}, words: {len(title.split())})")
+        return title
+    except Exception as e:
+        print(f"ERROR generating post title: {e}")
+        import traceback
+        traceback.print_exc()
+        return "Repair Success!"
 
 
 if __name__ == "__main__":
@@ -1448,7 +1376,7 @@ if __name__ == "__main__":
         
         # Show the appropriate response based on the response_source
         response_source = result.get("response_source", "")
-        local_repair_links = result.get("local_repair_links", [])
+        local_repair_available = result.get("local_repair_available", False)
         
         if response_source == "conversation":
             if result.get("conversation_response"):
@@ -1462,11 +1390,11 @@ if __name__ == "__main__":
             if result.get("final_response"):
                 print("=== NON-CONVERSATION RESPONSE ===")
                 print(result["final_response"])
-                print(f"=== LOCAL REPAIR BUTTON SHOULD SHOW (found {len(local_repair_links)} repair shops) ===")
-                if local_repair_links:
-                    print("Google Maps Links for Frontend:")
-                    for i, link in enumerate(local_repair_links, 1):
-                        print(f"  {i}. {link}")
+                print(f"=== LOCAL REPAIR BUTTON SHOULD SHOW (available: {local_repair_available}) ===")
+                if local_repair_available:
+                    print("Query saved to JSON file for LocalRepairTool")
+                else:
+                    print("No query saved (local repair not available)")
             else:
                 print("No repair response generated")
         

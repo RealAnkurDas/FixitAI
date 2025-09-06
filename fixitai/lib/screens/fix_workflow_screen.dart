@@ -3,13 +3,18 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/app_colors.dart';
-import '../widgets/custom_button.dart';
+import '../services/location_service.dart';
+import 'location_picker_screen.dart';
+import 'social/create_post_screen.dart';
 
 class FixWorkflowScreen extends StatefulWidget {
   const FixWorkflowScreen({super.key});
@@ -23,6 +28,7 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
   final _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final ImagePicker _imagePicker = ImagePicker();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   
   // Session Management
   List<ChatSession> sessions = [];
@@ -56,8 +62,8 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
   int currentProgressIndex = 0;
   bool showingProgress = false;
   
-  // API Configuration - Updated to use FixAgent API
-  static const String baseUrl = 'http://192.168.1.47:8000/api';
+  // API Configuration - Updated to use FixAgent API via ngrok
+  static const String baseUrl = 'https://fermin-unlegible-unrefreshingly.ngrok-free.app/api';
 
   @override
   void initState() {
@@ -90,6 +96,9 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     
     // Load saved sessions and create initial session
     _loadSavedSessions();
+    
+    // Load user's last query if available
+    _loadUserLastQuery();
   }
 
   @override
@@ -130,9 +139,7 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
               isUser: messageData['isUser'],
               imageFile: null, // Images can't be saved to SharedPreferences, so they'll be lost on restart
               responseSource: messageData['responseSource'],
-              localRepairLinks: messageData['localRepairLinks'] != null 
-                  ? List<String>.from(messageData['localRepairLinks']) 
-                  : null,
+              localRepairAvailable: messageData['localRepairAvailable'] ?? false,
             ));
           }
           
@@ -159,6 +166,52 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     }
   }
 
+  Future<void> _loadUserLastQuery() async {
+    try {
+      final user = _auth.currentUser;
+      if (user?.uid == null) return;
+      
+      print('DEBUG: Loading last query for user: ${user!.uid}');
+      
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/${user.uid}/last-query'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          final lastQuery = data['query'];
+          print('DEBUG: Found last query: $lastQuery');
+          
+          // Optionally show the last query to the user
+          // You can customize this behavior based on your UX requirements
+          if (lastQuery.isNotEmpty && messages.isEmpty) {
+            // Add a suggestion message if no messages exist yet
+            final suggestionMessage = ChatMessage(
+              message: "💡 Last time you asked: \"$lastQuery\"\n\nWould you like to continue with this repair or ask something new?",
+              isUser: false,
+              responseSource: "system",
+            );
+            
+            setState(() {
+              messages.add(suggestionMessage);
+              if (currentSession != null) {
+                currentSession!.addMessage(suggestionMessage);
+              }
+            });
+          }
+        }
+      } else if (response.statusCode == 404) {
+        print('DEBUG: No previous query found for user');
+      } else {
+        print('DEBUG: Failed to load last query: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('DEBUG: Error loading user last query: $e');
+    }
+  }
+
   Future<void> _saveSessions() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -172,7 +225,7 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
               'message': message.message,
               'isUser': message.isUser,
               'responseSource': message.responseSource,
-              'localRepairLinks': message.localRepairLinks,
+              'localRepairAvailable': message.localRepairAvailable,
             };
           }).toList(),
         });
@@ -341,16 +394,14 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     if (shouldDelete != true) return;
 
     try {
-      // Delete from backend if sessionId exists
-      if (session.id != null) {
-        final response = await http.delete(
-          Uri.parse('$baseUrl/session/${session.id}'),
-          headers: {'Content-Type': 'application/json'},
-        );
-        
-        if (response.statusCode != 200 && response.statusCode != 404) {
-          print('Failed to delete session from backend: ${response.statusCode}');
-        }
+      // Delete from backend
+      final response = await http.delete(
+        Uri.parse('$baseUrl/session/${session.id}'),
+        headers: {'Content-Type': 'application/json'},
+      );
+      
+      if (response.statusCode != 200 && response.statusCode != 404) {
+        print('Failed to delete session from backend: ${response.statusCode}');
       }
 
       // Remove from local sessions
@@ -483,8 +534,11 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
           Uri.parse('$baseUrl/session/$sessionId/analyze'),
         );
 
-        // Add session_id and message as fields
+        // Add session_id, message, and user_id as fields
         multipartRequest.fields['message'] = messageText;
+        if (_auth.currentUser?.uid != null) {
+          multipartRequest.fields['user_id'] = _auth.currentUser!.uid;
+        }
 
         // Add image file
         final imageStream = http.ByteStream(imageToSend.openRead());
@@ -501,24 +555,37 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         response = await http.Response.fromStream(streamedResponse);
       } else {
         // Send text-only message
+        final requestBody = <String, dynamic>{
+          'message': messageText,
+        };
+        
+        // Add user_id if available
+        if (_auth.currentUser?.uid != null) {
+          requestBody['user_id'] = _auth.currentUser!.uid;
+        }
+        
         response = await http.post(
           Uri.parse('$baseUrl/session/$sessionId/analyze'),
           headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'message': messageText,
-          }),
+          body: json.encode(requestBody),
         );
       }
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        // Debug: Print received data
+        print('DEBUG: Received API response:');
+        print('  - response: ${data['response']?.substring(0, 100)}...');
+        print('  - item_name: ${data['item_name']}');
+        print('  - post_title: ${data['post_title']}');
+        
         final aiMessage = ChatMessage(
           message: data['response'] ?? 'Sorry, I encountered an error.',
           isUser: false,
           responseSource: data['response_source'],
-          localRepairLinks: data['local_repair_links'] != null 
-              ? List<String>.from(data['local_repair_links']) 
-              : null,
+          localRepairAvailable: data['local_repair_available'] ?? false,
+          itemName: data['item_name'],
+          postTitle: data['post_title'],
         );
 
         setState(() {
@@ -1181,11 +1248,11 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     );
   }
 
-  Widget _buildLocalRepairButton(List<String> repairLinks) {
+  Widget _buildLocalRepairButton() {
     return Container(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: () => _showLocalRepairDialog(repairLinks),
+        onPressed: () => _searchLocalRepairShops(),
         icon: const Icon(Icons.store, size: 16),
         label: const Text('Local Repair Stores'),
         style: ElevatedButton.styleFrom(
@@ -1200,7 +1267,537 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     );
   }
 
-  void _showLocalRepairDialog(List<String> repairLinks) {
+  Widget _buildPostButton(ChatMessage message) {
+    return Container(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () => _navigateToCreatePost(message),
+        icon: const Icon(Icons.share, size: 16),
+        label: const Text('Share Fix'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _navigateToCreatePost(ChatMessage message) async {
+    try {
+      // First, try to get LLM-generated data from the backend
+      Map<String, dynamic> repairData = {};
+      
+      try {
+        print('DEBUG: Fetching LLM-generated post data from backend...');
+        final response = await http.get(
+          Uri.parse('http://localhost:8000/api/post-data'),
+          headers: {'Content-Type': 'application/json'},
+        );
+        
+        if (response.statusCode == 200) {
+          final postData = json.decode(response.body);
+          print('DEBUG: Received post data from backend: $postData');
+          
+          if (postData['error'] == null) {
+            // Use LLM-generated data
+            repairData = {
+              'title': postData['post_title'] ?? '',
+              'description': postData['final_response'] ?? message.message,
+              'itemName': postData['item_name'] ?? '',
+            };
+            print('DEBUG: Using LLM-generated data: $repairData');
+          } else {
+            print('DEBUG: No LLM data available, falling back to message extraction');
+            repairData = _extractRepairDataFromMessage(message);
+          }
+        } else {
+          print('DEBUG: Failed to fetch post data, falling back to message extraction');
+          repairData = _extractRepairDataFromMessage(message);
+        }
+      } catch (e) {
+        print('DEBUG: Error fetching post data: $e, falling back to message extraction');
+        repairData = _extractRepairDataFromMessage(message);
+      }
+      
+      // Navigate to create post screen with pre-filled data
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CreatePostScreen(
+            preFilledData: repairData,
+          ),
+        ),
+      );
+      
+      // Show success message if post was created
+      if (result == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Post shared successfully!'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to open post creation: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Map<String, dynamic> _extractRepairDataFromMessage(ChatMessage message) {
+    final repairData = <String, dynamic>{};
+    
+    // Debug: Print message data
+    print('DEBUG: Extracting repair data from message:');
+    print('  - postTitle: ${message.postTitle}');
+    print('  - itemName: ${message.itemName}');
+    
+    // Use LLM-generated title if available, otherwise leave empty
+    if (message.postTitle != null && message.postTitle!.isNotEmpty) {
+      repairData['title'] = message.postTitle!;
+      print('DEBUG: Using LLM-generated title: ${message.postTitle}');
+    } else {
+      print('DEBUG: No LLM-generated title available, leaving title field empty');
+      repairData['title'] = ''; // Explicitly set empty instead of fallback
+    }
+    
+    // Use the full message as description
+    repairData['description'] = message.message;
+    
+    // Use LLM-extracted item name if available, otherwise try to extract from message
+    if (message.itemName != null && message.itemName!.isNotEmpty) {
+      repairData['itemName'] = message.itemName!;
+    } else {
+      final itemType = _extractItemType(message.message);
+      if (itemType.isNotEmpty) {
+        repairData['itemName'] = itemType;
+      }
+    }
+    
+    // Try to extract tools from the message
+    final tools = _extractTools(message.message);
+    if (tools.isNotEmpty) {
+      repairData['tools'] = tools.join(', ');
+    }
+    
+    // Set default difficulty and time
+    repairData['difficulty'] = 'Medium';
+    repairData['timeRequired'] = 30;
+    
+    // Include the image if available
+    if (message.imageFile != null) {
+      repairData['imageFile'] = message.imageFile;
+    }
+    
+    print('DEBUG: Final repair data being passed to CreatePostScreen: $repairData');
+    return repairData;
+  }
+
+  String _extractItemType(String message) {
+    // Common item patterns
+    final itemPatterns = [
+      RegExp(r'(iPhone\s+\d+)', caseSensitive: false),
+      RegExp(r'(Samsung\s+\w+)', caseSensitive: false),
+      RegExp(r'(MacBook\s+\w+)', caseSensitive: false),
+      RegExp(r'(iPad\s+\w*)', caseSensitive: false),
+      RegExp(r'(Dell\s+\w+)', caseSensitive: false),
+      RegExp(r'(HP\s+\w+)', caseSensitive: false),
+      RegExp(r'(Lenovo\s+\w+)', caseSensitive: false),
+      RegExp(r'(office chair)', caseSensitive: false),
+      RegExp(r'(dining chair)', caseSensitive: false),
+      RegExp(r'(chair)', caseSensitive: false),
+      RegExp(r'(bicycle)', caseSensitive: false),
+      RegExp(r'(bike)', caseSensitive: false),
+      RegExp(r'(car)', caseSensitive: false),
+      RegExp(r'(laptop)', caseSensitive: false),
+      RegExp(r'(phone)', caseSensitive: false),
+      RegExp(r'(tablet)', caseSensitive: false),
+      RegExp(r'(computer)', caseSensitive: false),
+      RegExp(r'(TV)', caseSensitive: false),
+      RegExp(r'(television)', caseSensitive: false),
+      RegExp(r'(monitor)', caseSensitive: false),
+      RegExp(r'(watch)', caseSensitive: false),
+      RegExp(r'(headphones)', caseSensitive: false),
+      RegExp(r'(earphones)', caseSensitive: false),
+    ];
+    
+    for (final pattern in itemPatterns) {
+      final match = pattern.firstMatch(message);
+      if (match != null) {
+        return match.group(1) ?? match.group(0) ?? '';
+      }
+    }
+    
+    return '';
+  }
+
+  List<String> _extractTools(String message) {
+    final tools = <String>[];
+    
+    // Common tool patterns
+    final toolPatterns = [
+      RegExp(r'(screwdriver)', caseSensitive: false),
+      RegExp(r'(pliers)', caseSensitive: false),
+      RegExp(r'(soldering iron)', caseSensitive: false),
+      RegExp(r'(multimeter)', caseSensitive: false),
+      RegExp(r'(heat gun)', caseSensitive: false),
+      RegExp(r'(pry tool)', caseSensitive: false),
+      RegExp(r'(spudger)', caseSensitive: false),
+      RegExp(r'(tweezers)', caseSensitive: false),
+      RegExp(r'(torx driver)', caseSensitive: false),
+      RegExp(r'(phillips head)', caseSensitive: false),
+    ];
+    
+    for (final pattern in toolPatterns) {
+      final match = pattern.firstMatch(message);
+      if (match != null) {
+        final tool = match.group(1) ?? match.group(0) ?? '';
+        if (!tools.contains(tool.toLowerCase())) {
+          tools.add(tool);
+        }
+      }
+    }
+    
+    return tools;
+  }
+
+  Future<void> _searchLocalRepairShops() async {
+    try {
+      // First, get user's location
+      final locationService = LocationService();
+      
+      // Show initial loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text('Getting your location...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Get location with error handling
+      final locationResult = await locationService.getLocationWithErrorHandling();
+      
+      // Close initial loading dialog
+      Navigator.of(context).pop();
+
+      if (!locationResult.success) {
+        // Show error dialog with option to retry, open settings, or enter location manually
+        _showLocationErrorDialog(locationResult);
+        return;
+      }
+      
+      // Check if the location seems reasonable (not obviously cached/default)
+      if (locationResult.latitude != null && locationResult.longitude != null) {
+        // Check if coordinates look like they might be cached (common default locations)
+        bool isLikelyCached = _isLikelyCachedLocation(locationResult.latitude!, locationResult.longitude!);
+        if (isLikelyCached) {
+          print('DEBUG: Location appears to be cached, offering manual input option');
+          _showLocationAccuracyDialog(locationResult);
+          return;
+        }
+      }
+
+      // Show searching dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text('Searching for local repair shops...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Call the LocalRepairTool API endpoint with location data
+      final requestBody = <String, dynamic>{
+        'latitude': locationResult.latitude,
+        'longitude': locationResult.longitude,
+      };
+      
+      // Add user_id if available
+      if (_auth.currentUser?.uid != null) {
+        requestBody['user_id'] = _auth.currentUser!.uid;
+      }
+      
+      print('DEBUG: Sending location data: $requestBody');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/local-repair'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        if (data['success'] == true) {
+          // Show the repair shops in a dialog
+          _showLocalRepairDialog(data['content'], data['local_repair_links']);
+        } else {
+          // Show error message
+          _showLocalRepairDialog(data['content'], []);
+        }
+      } else {
+        _showLocalRepairDialog('Failed to search for repair shops. Please try again.', []);
+      }
+    } catch (e) {
+      // Close loading dialog if it's still open
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      _showLocalRepairDialog('Error searching for repair shops: $e', []);
+    }
+  }
+
+  bool _isLikelyCachedLocation(double lat, double lng) {
+    // Check for common cached/default locations
+    // San Francisco area (37.7749, -122.4194)
+    if ((lat >= 37.4 && lat <= 38.0) && (lng >= -122.5 && lng <= -122.0)) {
+      return true;
+    }
+    // Mountain View/Google area (37.4219983, -122.084)
+    if ((lat >= 37.3 && lat <= 37.5) && (lng >= -122.2 && lng <= -122.0)) {
+      return true;
+    }
+    // New York area (40.7128, -74.0060)
+    if ((lat >= 40.5 && lat <= 41.0) && (lng >= -74.2 && lng <= -73.8)) {
+      return true;
+    }
+    // Default 0, 0 coordinates
+    if (lat == 0.0 && lng == 0.0) {
+      return true;
+    }
+    return false;
+  }
+
+  void _showLocationAccuracyDialog(LocationResult locationResult) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.location_searching, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Location Accuracy'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'The location detected (${locationResult.latitude!.toStringAsFixed(4)}, ${locationResult.longitude!.toStringAsFixed(4)}) appears to be cached or inaccurate.',
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Would you like to:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text('• Try getting a fresh GPS location'),
+              const Text('• Select your location on a map'),
+              const Text('• Use the detected location anyway'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _searchLocalRepairShops(); // Retry with fresh location
+              },
+              child: const Text('Try Again'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                final selectedLocation = await LocationPickerDialog.show(context);
+                
+                if (selectedLocation != null) {
+                  final manualLocation = LocationResult(
+                    success: true,
+                    latitude: selectedLocation.latitude,
+                    longitude: selectedLocation.longitude,
+                    error: null,
+                    canRequestPermission: false,
+                  );
+                  _proceedWithLocation(manualLocation);
+                }
+              },
+              child: const Text('Select on Map'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _proceedWithLocation(locationResult);
+              },
+              child: const Text('Use This Location'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
+  void _proceedWithLocation(LocationResult locationResult) {
+    // Continue with the search using the provided location
+    _searchWithLocation(locationResult);
+  }
+
+  Future<void> _searchWithLocation(LocationResult locationResult) async {
+    try {
+      // Show searching dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text('Searching for local repair shops...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Call the LocalRepairTool API endpoint with location data
+      final requestBody = <String, dynamic>{
+        'latitude': locationResult.latitude,
+        'longitude': locationResult.longitude,
+      };
+      
+      // Add user_id if available
+      if (_auth.currentUser?.uid != null) {
+        requestBody['user_id'] = _auth.currentUser!.uid;
+      }
+      
+      print('DEBUG: Sending location data: $requestBody');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/local-repair'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        if (data['success'] == true) {
+          // Show the repair shops in a dialog
+          _showLocalRepairDialog(data['content'], data['local_repair_links']);
+        } else {
+          // Show error message
+          _showLocalRepairDialog(data['content'], []);
+        }
+      } else {
+        _showLocalRepairDialog('Failed to search for repair shops. Please try again.', []);
+      }
+    } catch (e) {
+      // Close loading dialog if it's still open
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      _showLocalRepairDialog('Error searching for repair shops: $e', []);
+    }
+  }
+
+  void _showLocationErrorDialog(LocationResult locationResult) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.location_off, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Location Required'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                locationResult.error ?? 'Location access is required to find nearby repair shops.',
+                style: const TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'To find repair shops near you, please:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text('• Enable location services on your device'),
+              const Text('• Grant location permission to this app'),
+              const Text('• Try again'),
+            ],
+          ),
+          actions: [
+            if (locationResult.canRequestPermission)
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _searchLocalRepairShops(); // Retry
+                },
+                child: const Text('Try Again'),
+              ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showLocalRepairDialog(String content, List<dynamic> repairLinks) {
+    // Parse the content to extract shop information and links
+    List<Map<String, String>> shops = _parseRepairShopsContent(content);
+    
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1208,22 +1805,17 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
           title: const Text('Local Repair Stores'),
           content: SizedBox(
             width: double.maxFinite,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: repairLinks.length,
-              itemBuilder: (context, index) {
-                return ListTile(
-                  leading: const Icon(Icons.location_on),
-                  title: Text('Repair Store ${index + 1}'),
-                  subtitle: const Text('Tap to open in Google Maps'),
-                  onTap: () {
-                    // Open the Google Maps link
-                    // You might need to add url_launcher package for this
-                    print('Opening: ${repairLinks[index]}');
-                    Navigator.of(context).pop();
-                  },
-                );
-              },
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (shops.isEmpty)
+                    const Text('No repair shops found in your area.')
+                  else
+                    ...shops.map((shop) => _buildRepairShopCard(shop)).toList(),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -1235,6 +1827,163 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
         );
       },
     );
+  }
+
+  List<Map<String, String>> _parseRepairShopsContent(String content) {
+    List<Map<String, String>> shops = [];
+    List<String> lines = content.split('\n');
+    
+    String currentShopInfo = '';
+    String currentShopLink = '';
+    bool isCollectingShopInfo = false;
+    
+    for (String line in lines) {
+      line = line.trim();
+      if (line.isEmpty) {
+        // Empty line indicates end of current shop
+        if (currentShopInfo.isNotEmpty) {
+          shops.add({
+            'info': currentShopInfo,
+            'link': currentShopLink,
+          });
+          currentShopInfo = '';
+          currentShopLink = '';
+          isCollectingShopInfo = false;
+        }
+      } else if (line.startsWith('SHOP:')) {
+        // Start of shop information
+        currentShopInfo = line.substring(5).trim(); // Remove the "SHOP:" prefix
+        isCollectingShopInfo = true;
+      } else if (line.startsWith('LINK:')) {
+        // Google Maps link line
+        currentShopLink = line.substring(5).trim(); // Remove the "LINK:" prefix
+        isCollectingShopInfo = false;
+      } else if (isCollectingShopInfo && line.isNotEmpty) {
+        // Continue collecting shop information (address, phone, etc.)
+        currentShopInfo += '\n$line';
+      }
+    }
+    
+    // Add the last shop if there's no trailing empty line
+    if (currentShopInfo.isNotEmpty) {
+      shops.add({
+        'info': currentShopInfo,
+        'link': currentShopLink,
+      });
+    }
+    
+    return shops;
+  }
+
+  Widget _buildRepairShopCard(Map<String, String> shop) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Shop information (selectable)
+            SelectableText(
+              shop['info'] ?? '',
+              style: const TextStyle(fontSize: 14),
+            ),
+            
+            // Google Maps button
+            if (shop['link']?.isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _openGoogleMaps(shop['link']!),
+                  icon: const Icon(Icons.location_on, size: 16),
+                  label: const Text('Open in Google Maps'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openGoogleMaps(String url) async {
+    try {
+      final Uri uri = Uri.parse(url);
+      print('DEBUG: Attempting to open URL: $url');
+      
+      // Try to launch the URL
+      bool launched = false;
+      
+      // First try with platformDefault mode (recommended for cross-platform)
+      if (await canLaunchUrl(uri)) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.platformDefault);
+          launched = true;
+          print('DEBUG: Successfully launched with platformDefault mode');
+        } catch (e) {
+          print('DEBUG: platformDefault failed: $e');
+        }
+      }
+      
+      // If platformDefault failed, try externalApplication
+      if (!launched && await canLaunchUrl(uri)) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+          launched = true;
+          print('DEBUG: Successfully launched with externalApplication mode');
+        } catch (e) {
+          print('DEBUG: externalApplication failed: $e');
+        }
+      }
+      
+      // If both failed, try externalNonBrowserApplication
+      if (!launched && await canLaunchUrl(uri)) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+          launched = true;
+          print('DEBUG: Successfully launched with externalNonBrowserApplication mode');
+        } catch (e) {
+          print('DEBUG: externalNonBrowserApplication failed: $e');
+        }
+      }
+      
+      if (!launched) {
+        // Fallback: copy to clipboard
+        await Clipboard.setData(ClipboardData(text: url));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not open Google Maps. Link copied to clipboard.'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        print('DEBUG: All launch modes failed, copied to clipboard');
+      }
+      
+    } catch (e) {
+      print('DEBUG: Error in _openGoogleMaps: $e');
+      // Fallback: copy to clipboard
+      await Clipboard.setData(ClipboardData(text: url));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error opening Google Maps. Link copied to clipboard.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildMessageBubble(ChatMessage message) {
@@ -1321,8 +2070,8 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
                       ),
                     ),
                   ],
-                  // Message text
-                  Text(
+                  // Message text (selectable)
+                  SelectableText(
                     message.message,
                     style: TextStyle(
                       color: message.isUser ? Colors.white : Colors.black,
@@ -1330,13 +2079,20 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
                     ),
                   ),
                   
-                  // Local Repair Stores button (only for AI messages that are not conversation)
+                  // Action buttons (only for AI messages that are not conversation and have local repair available)
                   if (!message.isUser && 
-                      message.responseSource != "conversation" && 
-                      message.localRepairLinks != null && 
-                      message.localRepairLinks!.isNotEmpty) ...[
+                      message.responseSource != "conversation" &&
+                      message.localRepairAvailable == true) ...[
                     const SizedBox(height: 8),
-                    _buildLocalRepairButton(message.localRepairLinks!),
+                    Row(
+                      children: [
+                        // Local Repair Stores button
+                        Expanded(child: _buildLocalRepairButton()),
+                        const SizedBox(width: 8),
+                        // Post to Social button
+                        Expanded(child: _buildPostButton(message)),
+                      ],
+                    ),
                   ],
                 ],
               ),
@@ -1392,13 +2148,17 @@ class ChatMessage {
   final bool isUser;
   final File? imageFile; // Add image file support
   final String? responseSource; // "conversation" or "problem_identification"
-  final List<String>? localRepairLinks; // Google Maps URLs for repair shops
+  final bool? localRepairAvailable; // True if local repair search is available
+  final String? itemName; // Item name extracted from LLM
+  final String? postTitle; // Title generated by LLM for social posts
 
   ChatMessage({
     required this.message, 
     required this.isUser, 
     this.imageFile,
     this.responseSource,
-    this.localRepairLinks,
+    this.localRepairAvailable,
+    this.itemName,
+    this.postTitle,
   });
 }

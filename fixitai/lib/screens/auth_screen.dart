@@ -120,114 +120,120 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildLoginForm() {
-    return Column(
-      children: [
-        CustomTextField(
-          controller: _emailController,
-          label: 'Email',
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          decoration: InputDecoration(
-            labelText: 'Password',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                color: AppColors.textSecondary,
-              ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
-            ),
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          CustomTextField(
+            controller: _emailController,
+            label: 'Email',
+            keyboardType: TextInputType.emailAddress,
           ),
-        ),
-        const SizedBox(height: 24),
-        CustomButton(
-          text: _isLoading ? 'Signing In...' : 'Login',
-          onPressed: _isLoading ? () {} : () => _signIn(),
-        ),
-        const SizedBox(height: 16),
-        TextButton(
-          onPressed: _isLoading ? null : _resetPassword,
-          child: const Text(
-            'Forgot Password?',
-            style: TextStyle(color: AppColors.primary),
-          ),
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'OR',
-          style: TextStyle(
-            color: AppColors.textSecondary,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _signInWithGoogle,
-            icon: const Icon(Icons.g_mobiledata, size: 24),
-            label: const Text('Continue with Google'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black87,
-              side: const BorderSide(color: Colors.grey),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              shape: RoundedRectangleBorder(
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+              ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 24),
+          CustomButton(
+            text: _isLoading ? 'Signing In...' : 'Login',
+            onPressed: _isLoading ? () {} : () => _signIn(),
+          ),
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: _isLoading ? null : _resetPassword,
+            child: const Text(
+              'Forgot Password?',
+              style: TextStyle(color: AppColors.primary),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'OR',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _signInWithGoogle,
+              icon: const Icon(Icons.g_mobiledata, size: 24),
+              label: const Text('Continue with Google'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                side: const BorderSide(color: Colors.grey),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20), // Add bottom padding for scroll
+        ],
+      ),
     );
   }
 
   Widget _buildSignUpForm() {
-    return Column(
-      children: [
-        CustomTextField(
-          controller: _emailController,
-          label: 'Email',
-          keyboardType: TextInputType.emailAddress,
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          decoration: InputDecoration(
-            labelText: 'Password',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                color: AppColors.textSecondary,
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          CustomTextField(
+            controller: _emailController,
+            label: 'Email',
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passwordController,
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-              onPressed: () {
-                setState(() {
-                  _obscurePassword = !_obscurePassword;
-                });
-              },
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                  color: AppColors.textSecondary,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 24),
-        CustomButton(
-          text: _isLoading ? 'Creating Account...' : 'Sign Up',
-          onPressed: _isLoading ? () {} : () => _signUp(),
-        ),
-      ],
+          const SizedBox(height: 24),
+          CustomButton(
+            text: _isLoading ? 'Creating Account...' : 'Sign Up',
+            onPressed: _isLoading ? () {} : () => _signUp(),
+          ),
+          const SizedBox(height: 20), // Add bottom padding for scroll
+        ],
+      ),
     );
   }
 

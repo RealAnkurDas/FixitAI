@@ -49,5 +49,9 @@
 	<string>This app needs camera access to capture photos of items that need repair.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs microphone access for voice input when describing repair problems.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs location access to find nearby repair shops for your device.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app needs location access to find nearby repair shops for your device.</string>
 </dict>
 </plist>

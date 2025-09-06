@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/app_colors.dart';
+import '../utils/image_utils.dart';
 import '../models/post_model.dart';
 import '../models/user_model.dart';
 
@@ -66,23 +67,12 @@ class PostCard extends StatelessWidget {
       child: Row(
         children: [
           // User avatar
-          CircleAvatar(
+          ImageUtils.createAvatar(
+            imagePath: userProfile?.photoURL,
+            displayName: userProfile?.displayName,
             radius: 20,
             backgroundColor: AppColors.primary.withOpacity(0.1),
-            backgroundImage: userProfile?.photoURL != null
-                ? CachedNetworkImageProvider(userProfile!.photoURL!)
-                : null,
-            child: userProfile?.photoURL == null
-                ? Text(
-                    userProfile?.displayName.isNotEmpty == true
-                        ? userProfile!.displayName[0].toUpperCase()
-                        : 'U',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                  )
-                : null,
+            textColor: AppColors.primary,
           ),
           
           const SizedBox(width: 12),

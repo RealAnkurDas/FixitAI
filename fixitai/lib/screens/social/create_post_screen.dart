@@ -9,7 +9,9 @@ import '../../models/post_model.dart';
 import '../../models/user_model.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key});
+  final Map<String, dynamic>? preFilledData;
+  
+  const CreatePostScreen({super.key, this.preFilledData});
 
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -22,7 +24,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _deviceTypeController = TextEditingController();
+  final TextEditingController _itemNameController = TextEditingController();
   final TextEditingController _toolsController = TextEditingController();
   
   File? _selectedImage;
@@ -37,21 +39,67 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   void initState() {
     super.initState();
     _loadCurrentUser();
+    _preFillForm();
+  }
+
+  void _preFillForm() {
+    if (widget.preFilledData != null) {
+      final data = widget.preFilledData!;
+      
+      print('DEBUG: CreatePostScreen - Pre-filling form with data: $data');
+      
+      // Pre-fill text fields
+      if (data['title'] != null) {
+        _titleController.text = data['title'].toString();
+        print('DEBUG: CreatePostScreen - Pre-filled title: ${data['title']}');
+      }
+      
+      if (data['description'] != null) {
+        _descriptionController.text = data['description'].toString();
+      }
+      
+      if (data['itemName'] != null) {
+        _itemNameController.text = data['itemName'].toString();
+      }
+      
+      if (data['tools'] != null) {
+        _toolsController.text = data['tools'].toString();
+      }
+      
+      // Pre-fill difficulty
+      if (data['difficulty'] != null) {
+        _selectedDifficulty = data['difficulty'].toString();
+      }
+      
+      // Pre-fill time required
+      if (data['timeRequired'] != null) {
+        _timeRequired = data['timeRequired'] is int 
+            ? data['timeRequired'] as int
+            : int.tryParse(data['timeRequired'].toString()) ?? 30;
+      }
+      
+      // Pre-fill image
+      if (data['imageFile'] != null && data['imageFile'] is File) {
+        _selectedImage = data['imageFile'] as File;
+      }
+    }
   }
 
   @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
-    _deviceTypeController.dispose();
+    _itemNameController.dispose();
     _toolsController.dispose();
     super.dispose();
   }
 
   Future<void> _loadCurrentUser() async {
     final userId = _auth.currentUser?.uid;
+    print('DEBUG: Loading current user with ID: $userId');
     if (userId != null) {
       final user = await _socialService.getUserProfile(userId);
+      print('DEBUG: Retrieved user profile: $user');
       setState(() {
         _currentUser = user;
       });
@@ -138,29 +186,52 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
       // Ensure user profile exists
       if (_currentUser == null) {
+        print('DEBUG: Current user is null, creating user profile');
         final user = _auth.currentUser;
         if (user != null) {
+          // Get a better display name from Firebase Auth
+          String displayName = user.displayName ?? '';
+          if (displayName.isEmpty) {
+            // Try to get name from email
+            if (user.email != null && user.email!.isNotEmpty) {
+              displayName = user.email!.split('@')[0];
+            } else {
+              displayName = 'User';
+            }
+          }
+          
+          print('DEBUG: Creating user profile with displayName: $displayName, email: ${user.email}, photoURL: ${user.photoURL}');
+          
           final userProfile = UserModel(
             id: user.uid,
             email: user.email ?? '',
-            displayName: user.displayName ?? 'User',
+            displayName: displayName,
             photoURL: user.photoURL,
             createdAt: DateTime.now(),
             lastActive: DateTime.now(),
           );
+          
+          print('DEBUG: About to create user profile in Firestore');
           await _socialService.createUserProfile(userProfile);
+          print('DEBUG: User profile created successfully');
+          
           setState(() {
             _currentUser = userProfile;
           });
         }
+      } else {
+        print('DEBUG: Current user already exists: ${_currentUser?.displayName}');
       }
 
+      print('DEBUG: CreatePostScreen - Creating post with title: "${_titleController.text.trim()}"');
+      print('DEBUG: CreatePostScreen - Item name: "${_itemNameController.text.trim()}"');
+      
       final post = PostModel(
         id: _socialService.generateId(),
         userId: userId,
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim(),
-        deviceType: _deviceTypeController.text.trim(),
+        deviceType: _itemNameController.text.trim(),
         difficulty: _selectedDifficulty,
         timeRequired: _timeRequired,
         toolsUsed: _toolsController.text.trim().split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
@@ -171,7 +242,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       await _socialService.createPost(post, _selectedImage);
       
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context, true); // Return true to indicate success
         _showSuccessSnackBar('Post created successfully!');
       }
     } catch (e) {
@@ -196,8 +267,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       return false;
     }
     
-    if (_deviceTypeController.text.trim().isEmpty) {
-      _showErrorSnackBar('Please enter the device type');
+    if (_itemNameController.text.trim().isEmpty) {
+      _showErrorSnackBar('Please enter the item name');
       return false;
     }
     
@@ -207,8 +278,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   List<String> _generateTags() {
     final tags = <String>[];
     
-    // Add device type as tag
-    tags.add(_deviceTypeController.text.trim().toLowerCase());
+    // Add item name as tag
+    tags.add(_itemNameController.text.trim().toLowerCase());
     
     // Add difficulty as tag
     tags.add(_selectedDifficulty.toLowerCase());
@@ -313,11 +384,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             
             const SizedBox(height: 16),
             
-            // Device type
+            // Item name
             _buildTextField(
-              controller: _deviceTypeController,
-              label: 'Device Type',
-              hint: 'e.g., iPhone 12, Samsung TV, MacBook Pro',
+              controller: _itemNameController,
+              label: 'Item Name',
+              hint: 'e.g., iPhone 12, office chair, bicycle, laptop',
               maxLines: 1,
             ),
             

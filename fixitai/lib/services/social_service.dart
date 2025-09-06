@@ -26,15 +26,24 @@ class SocialService {
 
   // User Management
   Future<void> createUserProfile(UserModel user) async {
+    print('DEBUG: Creating user profile in Firestore for user: ${user.id}');
+    print('DEBUG: User data: ${user.toMap()}');
     await _firestore.collection('users').doc(user.id).set(user.toMap());
+    print('DEBUG: User profile created successfully in Firestore');
   }
 
   Future<UserModel?> getUserProfile(String userId) async {
     try {
+      print('DEBUG: Getting user profile for userId: $userId');
       final doc = await _firestore.collection('users').doc(userId).get();
+      print('DEBUG: Document exists: ${doc.exists}');
       if (doc.exists && doc.data() != null) {
-        return UserModel.fromMap(doc.data()!);
+        print('DEBUG: Document data: ${doc.data()}');
+        final userModel = UserModel.fromMap(doc.data()!);
+        print('DEBUG: Created UserModel: ${userModel.displayName}');
+        return userModel;
       }
+      print('DEBUG: No user profile found for userId: $userId');
       return null;
     } catch (e) {
       print('Error getting user profile: $e');
@@ -400,6 +409,29 @@ class SocialService {
   
   bool isPostLikedByUser(PostModel post, String userId) {
     return post.likedBy.contains(userId);
+  }
+
+  // Save/Unsave Post functionality
+  Future<void> savePost(String postId, String userId) async {
+    try {
+      await _firestore.collection('posts').doc(postId).update({
+        'savedBy': FieldValue.arrayUnion([userId]),
+      });
+    } catch (e) {
+      print('Error saving post: $e');
+      throw Exception('Failed to save post: $e');
+    }
+  }
+
+  Future<void> unsavePost(String postId, String userId) async {
+    try {
+      await _firestore.collection('posts').doc(postId).update({
+        'savedBy': FieldValue.arrayRemove([userId]),
+      });
+    } catch (e) {
+      print('Error unsaving post: $e');
+      throw Exception('Failed to unsave post: $e');
+    }
   }
 
   // Get user statistics

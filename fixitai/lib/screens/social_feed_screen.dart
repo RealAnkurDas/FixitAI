@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../utils/app_colors.dart';
 import '../widgets/post_card.dart';
 import '../services/social_service.dart';
@@ -84,12 +83,26 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
               _userProfiles[userId] = userProfile;
             });
           } else {
-            // Create a default user profile if none exists
+            // Try to get user info from Firebase Auth if possible
+            final currentUser = _auth.currentUser;
+            String displayName = 'Unknown User';
+            String email = 'unknown@example.com';
+            String? photoURL;
+            
+            if (currentUser != null && currentUser.uid == userId) {
+              displayName = currentUser.displayName ?? '';
+              if (displayName.isEmpty && currentUser.email != null) {
+                displayName = currentUser.email!.split('@')[0];
+              }
+              email = currentUser.email ?? email;
+              photoURL = currentUser.photoURL;
+            }
+            
             final defaultProfile = UserModel(
               id: userId,
-              email: 'unknown@example.com',
-              displayName: 'Unknown User',
-              photoURL: null,
+              email: email,
+              displayName: displayName,
+              photoURL: photoURL,
               createdAt: DateTime.now(),
               lastActive: DateTime.now(),
             );
@@ -125,6 +138,15 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
       ),
     );
   }
@@ -174,7 +196,9 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
                         onLike: () => _handleLike(post),
                         onComment: () => _navigateToPostDetail(post),
                         onShare: () => _handleShare(post),
+                        onSave: () => _handleSave(post),
                         onDelete: canDelete ? () => _handleDeletePost(post) : null,
+                        isSaved: currentUserId != null ? post.savedBy.contains(currentUserId) : false,
                         canDelete: canDelete,
                       );
                     },
@@ -243,6 +267,23 @@ class _SocialFeedScreenState extends State<SocialFeedScreen> {
       }
     } catch (e) {
       _showErrorSnackBar('Failed to like post: $e');
+    }
+  }
+
+  Future<void> _handleSave(PostModel post) async {
+    try {
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) return;
+
+      if (post.savedBy.contains(userId)) {
+        await _socialService.unsavePost(post.id, userId);
+        _showSuccessSnackBar('Post removed from saved');
+      } else {
+        await _socialService.savePost(post.id, userId);
+        _showSuccessSnackBar('Post saved');
+      }
+    } catch (e) {
+      _showErrorSnackBar('Failed to save post: $e');
     }
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../utils/app_colors.dart';
+import '../../utils/image_utils.dart';
 import '../../services/social_service.dart';
 import '../../models/post_model.dart';
 import '../../models/user_model.dart';
@@ -218,24 +219,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          CircleAvatar(
+          ImageUtils.createAvatar(
+            imagePath: _postUser?.photoURL,
+            displayName: _postUser?.displayName,
             radius: 24,
             backgroundColor: AppColors.primary.withOpacity(0.1),
-            backgroundImage: _postUser?.photoURL != null
-                ? CachedNetworkImageProvider(_postUser!.photoURL!)
-                : null,
-            child: _postUser?.photoURL == null
-                ? Text(
-                    _postUser?.displayName.isNotEmpty == true
-                        ? _postUser!.displayName[0].toUpperCase()
-                        : 'U',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                      fontSize: 18,
-                    ),
-                  )
-                : null,
+            textColor: AppColors.primary,
+            fontSize: 18,
           ),
           
           const SizedBox(width: 12),
@@ -540,24 +530,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
+          ImageUtils.createAvatar(
+            imagePath: user?.photoURL,
+            displayName: user?.displayName,
             radius: 16,
             backgroundColor: AppColors.primary.withOpacity(0.1),
-            backgroundImage: user?.photoURL != null
-                ? CachedNetworkImageProvider(user!.photoURL!)
-                : null,
-            child: user?.photoURL == null
-                ? Text(
-                    user?.displayName.isNotEmpty == true
-                        ? user!.displayName[0].toUpperCase()
-                        : 'U',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                      fontSize: 12,
-                    ),
-                  )
-                : null,
+            textColor: AppColors.primary,
+            fontSize: 12,
           ),
           
           const SizedBox(width: 12),

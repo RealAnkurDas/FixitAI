@@ -50,8 +50,8 @@ class UserModel {
     return UserModel(
       id: map['id'] ?? '',
       email: map['email'] ?? '',
-      displayName: map['displayName'] ?? '',
-      photoURL: map['photoURL'],
+      displayName: map['displayName'] ?? map['name'] ?? '', // Handle both field names
+      photoURL: map['photoURL'] ?? map['profileImagePath'], // Handle both field names
       bio: map['bio'],
       repairCount: map['repairCount']?.toInt() ?? 0,
       followersCount: map['followersCount']?.toInt() ?? 0,
