@@ -184,9 +184,27 @@ def generate_repair_shop_query(problem_statement: str) -> str:
     elif any(word in problem_lower for word in ["appliance", "refrigerator", "washer", "dryer"]):
         return "appliance repair shop"
     
+    elif any(word in problem_lower for word in ["light", "switch", "electrical", "wiring", "outlet", "socket", "bulb", "lamp", "fixture"]):
+        return "electrical repair shop"
+    
+    elif any(word in problem_lower for word in ["plumbing", "pipe", "faucet", "toilet", "sink", "drain", "leak"]):
+        return "plumbing repair shop"
+    
+    elif any(word in problem_lower for word in ["furniture", "chair", "table", "desk", "cabinet", "wood"]):
+        return "furniture repair shop"
+    
+    elif any(word in problem_lower for word in ["bicycle", "bike", "cycle"]):
+        return "bicycle repair shop"
+    
+    elif any(word in problem_lower for word in ["watch", "clock", "timepiece"]):
+        return "watch repair shop"
+    
+    elif any(word in problem_lower for word in ["jewelry", "ring", "necklace", "bracelet"]):
+        return "jewelry repair shop"
+    
     else:
-        # Generic repair shop search
-        return "repair shop"
+        # Generic repair shop search - but be more specific
+        return "general repair shop"
 
 
 def search_local_repair_shops(
@@ -247,7 +265,7 @@ def search_local_repair_shops(
         print(f"DEBUG: Generated repair shop query: '{repair_shop_query}'")
         
         # Extract device type for better search
-        device_type = "phone"  # Default
+        device_type = "general"  # Default
         problem_lower = problem_statement.lower()
         if any(word in problem_lower for word in ["laptop", "computer", "pc"]):
             device_type = "laptop"
@@ -255,6 +273,20 @@ def search_local_repair_shops(
             device_type = "car"
         elif any(word in problem_lower for word in ["phone", "iphone", "android", "smartphone"]):
             device_type = "phone"
+        elif any(word in problem_lower for word in ["light", "switch", "electrical", "wiring", "outlet", "socket", "bulb", "lamp", "fixture"]):
+            device_type = "electrical"
+        elif any(word in problem_lower for word in ["plumbing", "pipe", "faucet", "toilet", "sink", "drain", "leak"]):
+            device_type = "plumbing"
+        elif any(word in problem_lower for word in ["furniture", "chair", "table", "desk", "cabinet", "wood"]):
+            device_type = "furniture"
+        elif any(word in problem_lower for word in ["bicycle", "bike", "cycle"]):
+            device_type = "bicycle"
+        elif any(word in problem_lower for word in ["watch", "clock", "timepiece"]):
+            device_type = "watch"
+        elif any(word in problem_lower for word in ["jewelry", "ring", "necklace", "bracelet"]):
+            device_type = "jewelry"
+        elif any(word in problem_lower for word in ["appliance", "refrigerator", "washer", "dryer"]):
+            device_type = "appliance"
         
         # Search for repair shops using Google Maps
         print(f"DEBUG: Calling Google Maps API with - lat: {latitude}, lng: {longitude}, radius: {radius}")

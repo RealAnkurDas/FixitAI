@@ -267,6 +267,32 @@ class GoogleMapsPlacesAPI:
                 "home_goods_store",
                 "store"
             ],
+            "electrical": [
+                "electrical_contractor",
+                "home_improvement_store",
+                "hardware_store"
+            ],
+            "plumbing": [
+                "plumber",
+                "home_improvement_store",
+                "hardware_store"
+            ],
+            "furniture": [
+                "furniture_store",
+                "home_goods_store",
+                "store"
+            ],
+            "bicycle": [
+                "bicycle_store",
+                "sporting_goods_store"
+            ],
+            "watch": [
+                "jewelry_store",
+                "watch_store"
+            ],
+            "jewelry": [
+                "jewelry_store"
+            ],
             "general": [
                 "electronics_store",
                 "store",
