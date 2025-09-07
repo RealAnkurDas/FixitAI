@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'screens/auth_screen.dart';
 import 'utils/app_colors.dart';
+import 'widgets/fixitai_logo.dart';
 
 Future<void> main() async {
 

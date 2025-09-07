@@ -7,6 +7,7 @@ import '../../services/social_service.dart';
 import '../../models/post_model.dart';
 import '../../models/user_model.dart';
 import '../../models/comment_model.dart';
+import '../../widgets/fixitai_logo.dart';
 
 class PostDetailScreen extends StatefulWidget {
   final PostModel post;
@@ -163,7 +164,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Post'),
+        title: Row(
+          children: [
+            const FixitaiLogo(
+              width: 24,
+              height: 24,
+              showText: false,
+              padding: EdgeInsets.all(2),
+            ),
+            const SizedBox(width: 8),
+            const Text('Post'),
+          ],
+        ),
         backgroundColor: AppColors.background,
         elevation: 0,
         actions: [

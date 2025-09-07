@@ -7,6 +7,7 @@ import '../../services/social_service.dart';
 import '../../services/firebase_test.dart';
 import '../../models/post_model.dart';
 import '../../models/user_model.dart';
+import '../../widgets/fixitai_logo.dart';
 
 class CreatePostScreen extends StatefulWidget {
   final Map<String, dynamic>? preFilledData;
@@ -327,7 +328,18 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
              appBar: AppBar(
-         title: const Text('Create Post'),
+         title: Row(
+           children: [
+             const FixitaiLogo(
+               width: 24,
+               height: 24,
+               showText: false,
+               padding: EdgeInsets.all(2),
+             ),
+             const SizedBox(width: 8),
+             const Text('Create Post'),
+           ],
+         ),
          backgroundColor: AppColors.background,
          elevation: 0,
          actions: [

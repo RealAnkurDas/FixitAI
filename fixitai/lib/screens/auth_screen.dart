@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/app_colors.dart';
 import '../widgets/custom_button.dart';
 import '../widgets/custom_text_field.dart';
+import '../widgets/fixitai_logo.dart';
 import 'main_hub_screen.dart';
 import 'onboarding_screen.dart';
 
@@ -48,29 +49,14 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
           child: Column(
             children: [
               const SizedBox(height: 60),
-              // Logo and illustration
-              Container(
-                height: 120,
+              // FIXiTAI Logo
+              const FixitaiLogo(
                 width: 120,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(60),
-                ),
-                child: const Icon(
-                  Icons.build_circle,
-                  size: 60,
-                  color: AppColors.primary,
-                ),
+                height: 120,
+                showText: true,
+                textSize: 20,
               ),
               const SizedBox(height: 24),
-              Text(
-                'FixitAI',
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  fontSize: 32,
-                  color: AppColors.primary,
-                ),
-              ),
-              const SizedBox(height: 8),
               Text(
                 'Your AI-powered repair assistant',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(

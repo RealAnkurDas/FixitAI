@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../widgets/fixitai_logo.dart';
 import 'fix_workflow_screen.dart';
 import 'social_feed_screen.dart';
 import 'profile_screen.dart';
@@ -28,18 +29,11 @@ class _MainHubScreenState extends State<MainHubScreen> {
         elevation: 0,
         title: Row(
           children: [
-            Container(
-              height: 32,
+            const FixitaiLogo(
               width: 32,
-              decoration: BoxDecoration(
-                color: AppColors.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.build_circle,
-                color: Colors.white,
-                size: 20,
-              ),
+              height: 32,
+              showText: false,
+              padding: EdgeInsets.all(4),
             ),
             const SizedBox(width: 12),
             const Text(

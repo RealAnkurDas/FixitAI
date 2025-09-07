@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../utils/app_colors.dart';
 import '../widgets/custom_button.dart';
+import '../widgets/fixitai_logo.dart';
 import 'main_hub_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -297,18 +298,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            height: 120,
+          const FixitaiLogo(
             width: 120,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(60),
-            ),
-            child: const Icon(
-              Icons.person_add,
-              size: 60,
-              color: AppColors.primary,
-            ),
+            height: 120,
+            showText: true,
+            textSize: 18,
           ),
           const SizedBox(height: 32),
           Text(
@@ -645,18 +639,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            height: 120,
+          const FixitaiLogo(
             width: 120,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(60),
-            ),
-            child: const Icon(
-              Icons.check_circle,
-              size: 60,
-              color: AppColors.primary,
-            ),
+            height: 120,
+            showText: true,
+            textSize: 18,
           ),
           const SizedBox(height: 32),
           Text(
