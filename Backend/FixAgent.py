@@ -12,7 +12,7 @@ Architecture:
 
 LLM Models:
 - Qwen2.5vl:7b: Primary model for text and vision analysis
-- Llama3.1:8b: Secondary model for specific tasks
+- Secondary model support for specific tasks
 
 External Data Sources:
 - iFixit: Repair guides and tutorials

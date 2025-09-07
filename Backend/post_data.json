@@ -1,8 +1,8 @@
 {
-  "query": "How to fix a broken phone?",
-  "item_name": "phone",
-  "post_title": "Fixed Phone Screen",
-  "final_response": "Following are steps to fix steps to fix your cracked phone screen:\n\n1. Power off the device completely\n2. Remove the back cover carefully\n3. Disconnect the battery connector\n4. Remove the old screen assembly\n5. Install the new screen assembly\n6. Reassemble the device\n7. Test the device to ensure it works properly\n\nTools needed:\n1. Phillips screwdriver\n2. Plastic pry tool\n3. Anti-static wrist strap\n4. Work mat\n\nMaterials needed:\n1. Replacement screen\n2. New adhesive\n3. Suction cups\n\nSources:\n1. https://www.wikihow.com/Fix-an-iPhone-Screen\n2. https://pcunix.medium.com/dont-waste-money-on-a-phone-screen-protector-b1f6d2818bce\n3. https://www.asurion.com/connect/tech-tips/how-to-fix-a-cracked-phone-screen/\n",
-  "timestamp": "2025-09-07T14:12:28.725064",
+  "query": "my screen is stuck like this. how to fix?",
+  "item_name": "screen",
+  "post_title": "Fixed Grey Screen Laptop",
+  "final_response": "Following are steps to fix steps to fix your laptop stuck on grey screen or infinite loading:\n\n1. End all Discord processes to clear any stuck processes\n2. Clear corrupted cache files to resolve startup issues\n3. Run Discord with administrator privileges to bypass restrictions\n4. Reset DNS settings to address network-related problems\n5. Temporarily disable antivirus software or firewalls to identify if they are blocking Discord\n6. Reinstall the application by downloading the latest version from the official Discord website\n7. Launch the app to see if the problem is fixed\n8. If the issue persists, consider using the web version of Discord at discord.com as a temporary solution\n\nSources:\n1. https://www.wikihow.com/Fix-a-Laptop-Screen\n2. https://medium.com/@windows101tricks/fix-discord-not-opening-on-pc-stuck-on-grey-screen-or-infinite-loading-3976a027bbae\n3. https://www.reddit.com/r/it/comments/1cgyfg4/hi_guys_my_laptop_is_stuck_here_what_should_i_do/\n",
+  "timestamp": "2025-09-07T15:02:48.124458",
   "user_id": null
 }

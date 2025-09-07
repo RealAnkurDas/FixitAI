@@ -7,7 +7,7 @@ FixitAI is a comprehensive repair assistance platform that combines AI-powered a
 FixitAI integrates multiple technologies to deliver comprehensive repair assistance:
 
 - **Multi-Agent AI System** - LangGraph-based workflow with specialized agents
-- **LLM Integration** - Qwen2.5vl:7b and Llama3.1:8b models via Ollama
+- **LLM Integration** - Qwen2.5vl:7b model via Ollama
 - **External Data Sources** - iFixit, WikiHow, Medium, Reddit, StackExchange, ManualsLib
 - **Local Services** - Google Maps integration for repair shop discovery
 - **Social Community** - Firebase-based social features for sharing repair experiences

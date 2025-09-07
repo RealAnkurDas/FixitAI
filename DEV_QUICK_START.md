@@ -123,7 +123,7 @@ pip install -r requirements.txt
 ```bash
 # Install required LLM models
 ollama pull qwen2.5vl:7b
-ollama pull llama3.1:8b
+# ollama pull llama3.1:8b  # Removed - not used in codebase
 
 # Start Ollama server (if not already running)
 ollama serve
@@ -260,7 +260,7 @@ curl https://your-ngrok-url.ngrok.io/api/health
 ```bash
 # Reinstall models
 ollama pull qwen2.5vl:7b
-ollama pull llama3.1:8b
+# ollama pull llama3.1:8b  # Removed - not used in codebase
 
 # Check model status
 ollama list

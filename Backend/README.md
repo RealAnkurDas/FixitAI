@@ -8,7 +8,7 @@ The backend consists of three main components:
 
 ### 1. **FixAgent.py** - Core Multi-Agent System
 - **LangGraph-based workflow** orchestrating multiple specialized agents
-- **LLM Integration**: Uses Qwen2.5vl:7b and Llama3.1:8b models via Ollama
+- **LLM Integration**: Uses Qwen2.5vl:7b model via Ollama
 - **Agent Types**:
   - `conversation_node`: Handles user queries and context management
   - `examine_node`: Analyzes uploaded images using vision models

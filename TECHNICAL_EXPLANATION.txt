@@ -1,0 +1,58 @@
+FIXITAI - TECHNICAL ARCHITECTURE
+================================
+
+OVERVIEW
+--------
+AI-powered repair assistance platform with multi-agent workflow and social community features.
+
+FRONTEND
+========
+- Flutter mobile app with Material Design
+- Authentication (Firebase Auth + Google Sign-in)
+- Chat interface with AI agents
+- Social media feed for community posts
+- User profiles and settings
+
+BACKEND
+=======
+- Python FastAPI server
+- Multi-agent AI system using LangGraph
+- RESTful API endpoints for chat, upload, local repair
+- User query storage and session management
+
+AI AGENTS
+=========
+- Disambiguation Agent: Resolves ambiguous references in user queries
+- Decision Agent: Routes queries to conversation or problem identification
+- Conversation Agent: Handles general questions and chat
+- Problem Identification Agent: Extracts core problems from user input
+- WikiHow Agent: Searches WikiHow for step-by-step guides
+- iFixit Agent: Searches iFixit for repair tutorials
+- Medium Agent: Searches Medium for technical articles
+- Tavily Agent: Searches multiple sources via Tavily API
+- Aggregator Agent: Combines results from all sources
+- Examine Agent: Validates and finalizes repair instructions
+
+DATABASE
+========
+- Firebase Firestore: Real-time NoSQL database
+- Firebase Storage: Image and file storage
+- Cloudinary: Image processing and CDN
+- Local storage: User sessions and query history
+
+EXTERNAL SOURCES
+================
+- iFixit: Repair guides and tutorials
+- WikiHow: Step-by-step instructions
+- Medium: Technical articles
+- Reddit: Community discussions
+- StackExchange: Technical Q&A
+- Google Maps: Local repair shop discovery
+
+TECHNICAL STACK
+===============
+Frontend: Flutter + Firebase + Material Design
+Backend: Python + Flask + LangGraph + Ollama
+Database: Firebase Firestore + Firebase Storage + Cloudinary
+AI: Multi-agent system with Qwen2.5vl model
+External APIs: iFixit, WikiHow, Medium, Reddit, StackExchange, Google Maps
