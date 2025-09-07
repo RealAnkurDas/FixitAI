@@ -5,10 +5,10 @@ import 'package:http/http.dart' as http;
 import 'package:cloudinary_public/cloudinary_public.dart';
 
 class CloudinaryService {
-  // Replace these with your actual Cloudinary credentials
-  static const String _cloudName = 'dkvxiysme'; // Replace with your cloud name
-  static const String _apiKey = '556969932191651'; // Replace with your API key
-  static const String _apiSecret = 'owRuBRyid1krsY5knC6ILqRwQQQ'; // Replace with your API secret
+  // Cloudinary credentials
+  static const String _cloudName = 'dkvxiysme';
+  static const String _apiKey = '556969932191651';
+  static const String _apiSecret = 'owRuBRyid1krsY5knC6ILqRwQQQ';
   
   static final CloudinaryPublic _cloudinary = CloudinaryPublic(
     _cloudName,

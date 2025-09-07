@@ -1,3 +1,27 @@
+"""
+FixAgent.py - Core Multi-Agent System for FixitAI
+
+This module implements a LangGraph-based multi-agent workflow that orchestrates
+repair assistance by combining LLM analysis with external data sources.
+
+Architecture:
+- conversation_node: Handles user queries and context management
+- examine_node: Analyzes uploaded images using vision models  
+- search_node: Coordinates external data source searches
+- synthesize_node: Combines findings into comprehensive repair guidance
+
+LLM Models:
+- Qwen2.5vl:7b: Primary model for text and vision analysis
+- Llama3.1:8b: Secondary model for specific tasks
+
+External Data Sources:
+- iFixit: Repair guides and tutorials
+- WikiHow: Step-by-step instructions
+- Medium: Technical articles
+- Tavily: AI-powered web search
+- Google Maps: Local repair shop discovery
+"""
+
 from typing import TypedDict, Annotated, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 import operator
@@ -24,11 +48,11 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 
 try:
-    from test_ifixit_api import search_ifixit_advanced
-    from test_medium import search_medium_advanced  
-    from test_wikihow import search_wikihow_advanced
-    from test_tavilysearch import search_tavily
-    from test_googlemaps import search_repair_shops_advanced
+    from modules.ifixit_tool import search_ifixit_advanced
+    from modules.medium_tool import search_medium_advanced  
+    from modules.wikihow_tool import search_wikihow_advanced
+    from modules.tavily_tool import search_tavily
+    from modules.googlemaps_tool import search_repair_shops_advanced
 except ImportError as e:
     print(f"Import error: {e}")
     print("Make sure you're running from the Backend directory")
@@ -405,17 +429,9 @@ def conversation_node(state: AgentState) -> Dict[str, Any]:
         # Text-only conversation
         conversation_response = _generate_conversation_text_only(query, conversation_history, llm)
     
-    # Clear JSON file for LocalRepairTool (since this IS a conversation response)
-    try:
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
-        from local_repair_tool import clear_query_file
-        
-        clear_query_file()
-        print("DEBUG: Cleared JSON file for LocalRepairTool (conversation response)")
-    except Exception as e:
-        print(f"DEBUG: Failed to clear JSON file: {e}")
+    # Note: No need to clear query file for conversation responses
+    # User-specific queries are managed by LocalUserStorage in the API
+    print("DEBUG: Conversation response - no query file clearing needed")
     
     return {
         "conversation_response": conversation_response,
@@ -1049,17 +1065,9 @@ def examine_node(state: AgentState) -> Dict[str, Any]:
                 sources_section += f"{i}. {source}\n"
             final_response += sources_section
     
-    # Save query to JSON file for LocalRepairTool (since this is NOT a conversation response)
-    try:
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
-        from local_repair_tool import save_query_to_file
-        
-        save_query_to_file(query, problem_statement)
-        print("DEBUG: Saved repair query to JSON file for LocalRepairTool")
-    except Exception as e:
-        print(f"DEBUG: Failed to save query to JSON file: {e}")
+    # Note: Query saving is now handled by LocalUserStorage in the API
+    # No need to save query here as it's already saved when the user sends the message
+    print("DEBUG: Repair response - query already saved via LocalUserStorage in API")
     
     # Generate title and extract item name using LLM
     print(f"DEBUG: About to extract item name for query: {query}")

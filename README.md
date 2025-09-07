@@ -1,23 +1,38 @@
-# 🔧 FixitAI - Mobile App Project Structure
+# 🔧 FixitAI - Multi-Agent Repair Assistance Platform
 
-FixitAI is a mobile-first AI-powered assistant designed to help users repair and upcycle broken items through visual input, natural language understanding, and agentic AI workflows.
+FixitAI is a comprehensive repair assistance platform that combines AI-powered analysis with community-driven repair guidance. The system uses a multi-agent architecture to provide intelligent repair suggestions, local service discovery, and creative upcycling ideas.
 
 ## 📱 Project Overview
 
-This is a mobile application that integrates:
-- **Camera & Image Processing** - Capture and analyze broken items
-- **AI-Powered Repair Guidance** - Gemini + MCP integration for intelligent repair instructions
-- **Social Community** - Share successful repairs and connect with other DIY enthusiasts
-- **Local Expert Matching** - Find nearby repair professionals when needed
+FixitAI integrates multiple technologies to deliver comprehensive repair assistance:
 
-## 🏗️ Architecture
+- **Multi-Agent AI System** - LangGraph-based workflow with specialized agents
+- **LLM Integration** - Qwen2.5vl:7b and Llama3.1:8b models via Ollama
+- **External Data Sources** - iFixit, WikiHow, Medium, Reddit, StackExchange, ManualsLib
+- **Local Services** - Google Maps integration for repair shop discovery
+- **Social Community** - Firebase-based social features for sharing repair experiences
+- **Mobile Interface** - Flutter-based cross-platform mobile application
 
-The app follows a modular architecture with clear separation of concerns:
+## 🏗️ System Architecture
 
-- **Frontend**: Mobile UI components and screens
-- **Backend Services**: AI integration, data processing, and business logic
-- **Core Engine**: FixitAI reasoning and instruction generation
-- **Social Layer**: Community features and user interactions
+### **Backend (Python/FastAPI)**
+- **FixAgent.py**: Core multi-agent system using LangGraph
+- **fixagent_api.py**: RESTful API endpoints for frontend communication
+- **modules/**: Specialized search tools and utilities
+- **json_schemas.py**: Structured data handling and LLM response processing
+
+### **Frontend (Flutter)**
+- **Authentication**: Firebase Auth integration
+- **Main Screens**: Home, conversation, profile, social features
+- **Services**: API communication, local storage, social features
+- **Models**: User, post, and repair data structures
+
+### **Data Flow**
+1. **User Input** → Flutter UI → FastAPI endpoints
+2. **Query Processing** → FixAgent multi-agent workflow
+3. **External Search** → Multiple data sources (iFixit, WikiHow, etc.)
+4. **LLM Analysis** → Context synthesis and repair guidance
+5. **Response Generation** → Structured JSON to Flutter frontend
 
 ## 🚀 Getting Started
 

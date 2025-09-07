@@ -1,3 +1,22 @@
+/**
+ * FixitAI Flutter Application
+ * 
+ * Main entry point for the FixitAI mobile application.
+ * 
+ * Architecture:
+ * - Firebase Authentication for user management
+ * - Material Design UI with custom color scheme
+ * - Multi-screen navigation for repair assistance workflow
+ * 
+ * Key Features:
+ * - User authentication and profile management
+ * - Image capture and upload for repair analysis
+ * - Multi-agent conversation interface
+ * - Local repair shop discovery
+ * - Social features for sharing repair experiences
+ * - Creative upcycling suggestions
+ */
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'screens/auth_screen.dart';

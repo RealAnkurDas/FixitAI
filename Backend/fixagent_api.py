@@ -1,7 +1,30 @@
 #!/usr/bin/env python3
 """
-FastAPI backend for FixAgent.py integration
-Provides RESTful API endpoints for the multi-agent repair system
+fixagent_api.py - FastAPI Web Service for FixitAI
+
+This module provides RESTful API endpoints for the FixitAI multi-agent repair system,
+handling communication between the Flutter frontend and the backend services.
+
+Key Features:
+- User authentication via Firebase Auth
+- Image upload and analysis
+- Multi-agent conversation processing
+- Local repair shop discovery
+- Creative upcycling suggestions
+- User-specific query storage
+
+API Endpoints:
+- POST /api/chat: Main conversation endpoint with multi-agent processing
+- POST /api/upload: Image upload and analysis
+- POST /api/local-repair: Local repair shop search
+- POST /api/upcycle-ideas: Creative upcycling idea generation
+- GET /api/health: System health check
+
+Data Flow:
+1. Flutter app sends requests to FastAPI endpoints
+2. API validates user authentication and processes requests
+3. Calls appropriate FixAgent modules or specialized tools
+4. Returns structured JSON responses to frontend
 """
 
 import os
@@ -21,11 +44,12 @@ import uvicorn
 # Import the FixAgent system
 from FixAgent import run_multiagent_system
 
-# Import the LocalRepairTool and LocalUserStorage
+# Import the LocalRepairTool, UpcycleIdeasTool and LocalUserStorage
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 from local_repair_tool import search_local_repair_shops, save_query_to_file
+from upcycleideas_tool import generate_upcycle_ideas
 from local_user_storage import local_user_storage
 
 app = FastAPI(
@@ -549,6 +573,52 @@ async def search_local_repair(request: LocalRepairRequest):
                 "error": f"Local repair search failed: {str(e)}",
                 "content": f"Local Repair Shops\n\nNo repair shops found in your area.\n\nSearch Info: Error searching for repair shops: {str(e)}\nTotal shops found: 0",
                 "local_repair_links": [],
+                "json_response": error_json_response
+            }
+        )
+
+
+@app.post("/api/upcycle-ideas")
+async def generate_upcycle_ideas_endpoint(request: LocalRepairRequest):
+    """
+    Generate creative upcycling ideas using the query saved by the main agent
+    This endpoint is called when the user clicks the "Upcycle Ideas" button
+    """
+    try:
+        print("DEBUG: UpcycleIdeasTool endpoint called")
+        print(f"DEBUG: User ID for query retrieval: {request.user_id}")
+        
+        # Generate upcycling ideas using the saved query
+        result = generate_upcycle_ideas(user_id=request.user_id)
+        
+        print(f"DEBUG: UpcycleIdeasTool result - success: {result['success']}")
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": result["success"],
+                "content": result.get("content", ""),
+                "json_response": result.get("json_response", {}),
+                "metadata": result.get("metadata", {})
+            }
+        )
+        
+    except Exception as e:
+        print(f"ERROR: UpcycleIdeasTool failed: {e}")
+        # Create error response in JSON schema format
+        error_json_response = {
+            "title": "Upcycling Ideas",
+            "ideas": {},
+            "general_tips": [f"Error generating upcycling ideas: {str(e)}"],
+            "safety_notes": ["Please try again or contact support"]
+        }
+        
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Upcycling ideas generation failed: {str(e)}",
+                "content": f"Upcycling Ideas\n\nError generating upcycling ideas: {str(e)}\n\nPlease try again or contact support.",
                 "json_response": error_json_response
             }
         )

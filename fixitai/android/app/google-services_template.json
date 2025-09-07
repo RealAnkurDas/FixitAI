@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "313909722663",
+    "project_id": "fixitaiproject",
+    "storage_bucket": "fixitaiproject.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:313909722663:android:af37649e9b3a87f1175802",
+        "android_client_info": {
+          "package_name": "com.example.fixitai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "313909722663-tuvv22pg73jtpah1tu7ds0difi8k2f02.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.fixitai",
+            "certificate_hash": "d1c8ed5068d6ac10003cb0ec327ab8ab0853d0ba"
+          }
+        },
+        {
+          "client_id": "313909722663-1sm743m1ebdkfr29jhks3mj7svai07aq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTcGcZXmHqhYXHGEIsZPsd4Zbe1eOYreE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "313909722663-1sm743m1ebdkfr29jhks3mj7svai07aq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

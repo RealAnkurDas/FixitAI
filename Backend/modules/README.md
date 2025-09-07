@@ -1,8 +1,39 @@
-# Connectivity Test Modules
+# FixitAI Modules
 
-This folder contains individual test modules to verify the connectivity and functionality of each component in your multi-agent system before running the full system.
+This directory contains the core search tools and utilities that power the FixitAI multi-agent system. The modules are organized into functional tools and test utilities.
 
-## 🧪 Available Test Modules
+## 🔧 Core Search Tools
+
+### **External Data Source Tools**
+- **`reddit_tool.py`**: Reddit post search using Google PSE API
+- **`medium_tool.py`**: Medium article search using Google PSE API  
+- **`wikihow_tool.py`**: WikiHow guide search with content extraction
+- **`ifixit_tool.py`**: iFixit repair guide search via API and web scraping
+- **`stackexchange_tool.py`**: StackExchange Q&A search using official API
+- **`manualslib_tool.py`**: ManualsLib manual search with web scraping
+- **`tavily_tool.py`**: Tavily AI-powered web search integration
+
+### **Local Services**
+- **`googlemaps_tool.py`**: Google Maps Places API for local repair shop discovery
+- **`local_repair_tool.py`**: Local repair shop search coordination with LLM query generation
+- **`upcycleideas_tool.py`**: Creative upcycling idea generation using LLM
+
+### **Core Utilities**
+- **`local_user_storage.py`**: User-specific query storage and management
+- **`user_query_service.py`**: Query processing and context management
+
+## 🧪 Test Modules (modules_test/)
+
+The `modules_test/` directory contains actual test files for system validation:
+
+### **Connectivity Tests**
+- **`test_llm_connectivity.py`**: LLM connection and functionality testing
+- **`test_mock_agents.py`**: Mock agent implementations for testing
+- **`test_repair_manuals.py`**: Comprehensive repair manual search testing
+- **`test_manualslib.py`**: Basic ManualsLib functionality testing
+- **`run_all_tests.py`**: Master test runner for all components
+
+## 🔧 Available Tools
 
 ### 1. **test_llm_connectivity.py**
 Tests the ChatOllama LLM connection and basic functionality.

@@ -8,6 +8,7 @@ import '../utils/app_colors.dart';
 import '../services/post_service.dart';
 import '../services/social_service.dart';
 import '../models/post_model.dart';
+import '../models/user_model.dart';
 import '../widgets/post_card.dart';
 import 'auth_screen.dart';
 
@@ -32,6 +33,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     'totalLikes': 0,
     'followersCount': 0,
   };
+  
+  Map<String, UserModel> _userProfiles = {};
 
   @override
   void initState() {
@@ -63,6 +66,67 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         if (mounted) {
           setState(() {
             _isLoadingStats = false;
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> _loadUserProfiles(List<PostModel> posts) async {
+    final userIds = posts.map((post) => post.userId).toSet();
+    
+    for (final userId in userIds) {
+      if (!_userProfiles.containsKey(userId)) {
+        try {
+          final userProfile = await _socialService.getUserProfile(userId);
+          if (userProfile != null) {
+            setState(() {
+              _userProfiles[userId] = userProfile;
+            });
+          } else {
+            // Try to get user info from Firebase Auth if possible
+            final currentUser = _auth.currentUser;
+            String displayName = 'Unknown User';
+            String email = 'unknown@example.com';
+            String? photoURL;
+            
+            if (currentUser != null && currentUser.uid == userId) {
+              displayName = currentUser.displayName ?? '';
+              if (displayName.isEmpty && currentUser.email != null) {
+                displayName = currentUser.email!.split('@')[0];
+              }
+              email = currentUser.email ?? email;
+              photoURL = currentUser.photoURL;
+            }
+            
+            // Create a fallback user profile
+            final fallbackProfile = UserModel(
+              id: userId,
+              displayName: displayName,
+              email: email,
+              photoURL: photoURL,
+              createdAt: DateTime.now(),
+              lastActive: DateTime.now(),
+            );
+            
+            setState(() {
+              _userProfiles[userId] = fallbackProfile;
+            });
+          }
+        } catch (e) {
+          print('Error loading user profile for $userId: $e');
+          // Create a fallback user profile
+          final fallbackProfile = UserModel(
+            id: userId,
+            displayName: 'Unknown User',
+            email: 'unknown@example.com',
+            photoURL: null,
+            createdAt: DateTime.now(),
+            lastActive: DateTime.now(),
+          );
+          
+          setState(() {
+            _userProfiles[userId] = fallbackProfile;
           });
         }
       }
@@ -408,6 +472,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         }
 
         final userPosts = snapshot.data ?? [];
+        
+        // Load user profiles for the posts
+        if (userPosts.isNotEmpty) {
+          _loadUserProfiles(userPosts);
+        }
 
         if (userPosts.isEmpty) {
           return const Center(
@@ -446,6 +515,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             final post = userPosts[index];
             return PostCard(
               post: post,
+              userProfile: _userProfiles[post.userId],
               isSaved: post.savedBy.contains(userId),
               canDelete: true, // User can delete their own posts
               onTap: () {
@@ -524,6 +594,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         }
 
         final savedPosts = snapshot.data ?? [];
+        
+        // Load user profiles for the saved posts
+        if (savedPosts.isNotEmpty) {
+          _loadUserProfiles(savedPosts);
+        }
 
         if (savedPosts.isEmpty) {
           return const Center(
@@ -562,6 +637,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             final post = savedPosts[index];
             return PostCard(
               post: post,
+              userProfile: _userProfiles[post.userId],
               isSaved: true,
               onTap: () {
                 // TODO: Navigate to post detail

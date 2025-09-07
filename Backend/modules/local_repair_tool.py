@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional
 from pathlib import Path
 
 # Import the Google Maps search function
-from test_googlemaps import search_repair_shops_advanced
+from googlemaps_tool import search_repair_shops_advanced
 
 # Import JSON schema utilities
 import sys
@@ -24,11 +24,20 @@ from json_schemas import (
     parse_llm_json_response
 )
 
+# Import LLM utilities
+from langchain_ollama import ChatOllama
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get OLLAMA_BASE_URL from environment, default to localhost:11434
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+
 # Import the new LocalUserStorage
 from local_user_storage import local_user_storage
 
 # Configuration
-QUERY_FILE_PATH = Path(__file__).parent.parent / "local_repair_query.json"
 DEFAULT_LAT = 0.0  # Default coordinates
 DEFAULT_LNG = 0.0
 DEFAULT_RADIUS = 5000  # 5km radius
@@ -37,8 +46,9 @@ DEFAULT_MAX_RESULTS = 5
 
 def save_query_to_file(query: str, problem_statement: str = None, user_id: str = None) -> bool:
     """
-    Save the query and problem statement to a JSON file for LocalRepairTool to use
-    Now supports user-specific storage when user_id is provided
+    DEPRECATED: This function is no longer used. 
+    Queries are now saved directly via LocalUserStorage in the API.
+    This function is kept for backward compatibility but does nothing.
     
     Args:
         query: The original user query
@@ -46,99 +56,91 @@ def save_query_to_file(query: str, problem_statement: str = None, user_id: str =
         user_id: Optional user ID for user-specific storage
         
     Returns:
-        bool: True if successful, False otherwise
+        bool: Always returns True (no-op)
     """
-    try:
-        query_data = {
-            "query": query,
-            "problem_statement": problem_statement or query,
-            "timestamp": str(Path().cwd()),  # Simple timestamp placeholder
-            "user_id": user_id  # Store user ID for user-specific queries
-        }
-        
-        # Use user-specific file path if user_id is provided
-        if user_id:
-            query_file_path = Path(__file__).parent.parent / f"user_queries_{user_id}.json"
-        else:
-            query_file_path = QUERY_FILE_PATH
-        
-        with open(query_file_path, 'w', encoding='utf-8') as f:
-            json.dump(query_data, f, indent=2, ensure_ascii=False)
-        
-        print(f"DEBUG: Saved query to {query_file_path}")
-        return True
-        
-    except Exception as e:
-        print(f"ERROR: Failed to save query to file: {e}")
-        return False
+    print(f"DEBUG: save_query_to_file() called but is deprecated. Use LocalUserStorage directly.")
+    return True
 
 
 def load_query_from_file(user_id: str = None) -> Optional[Dict[str, str]]:
     """
-    Load the query and problem statement from the JSON file
-    Now supports user-specific loading when user_id is provided
+    DEPRECATED: This function is no longer used.
+    Queries are now loaded directly via LocalUserStorage.
+    This function is kept for backward compatibility but returns None.
     
     Args:
         user_id: Optional user ID for user-specific query loading
         
     Returns:
-        Dict with 'query' and 'problem_statement' keys, or None if file doesn't exist or error
+        None (deprecated function)
     """
-    try:
-        # Use user-specific file path if user_id is provided
-        if user_id:
-            query_file_path = Path(__file__).parent.parent / f"user_queries_{user_id}.json"
-        else:
-            query_file_path = QUERY_FILE_PATH
-            
-        if not query_file_path.exists():
-            print(f"DEBUG: Query file {query_file_path} does not exist")
-            return None
-            
-        with open(query_file_path, 'r', encoding='utf-8') as f:
-            query_data = json.load(f)
-        
-        print(f"DEBUG: Loaded query from {query_file_path}")
-        return query_data
-        
-    except Exception as e:
-        print(f"ERROR: Failed to load query from file: {e}")
-        return None
+    print(f"DEBUG: load_query_from_file() called but is deprecated. Use LocalUserStorage directly.")
+    return None
 
 
 def clear_query_file(user_id: str = None) -> bool:
     """
-    Clear/delete the query JSON file (used when conversation response is generated)
-    Now supports user-specific clearing when user_id is provided
+    DEPRECATED: This function is no longer used.
+    Queries are now cleared directly via LocalUserStorage.
+    This function is kept for backward compatibility but returns True.
     
     Args:
         user_id: Optional user ID for user-specific query clearing
         
     Returns:
-        bool: True if successful, False otherwise
+        bool: Always returns True (no-op)
     """
+    print(f"DEBUG: clear_query_file() called but is deprecated. Use LocalUserStorage directly.")
+    return True
+
+
+def call_llm_for_repair_shop_query(problem_statement: str) -> str:
+    """Call the LLM to generate an intelligent repair shop search query"""
     try:
-        # Use user-specific file path if user_id is provided
-        if user_id:
-            query_file_path = Path(__file__).parent.parent / f"user_queries_{user_id}.json"
-        else:
-            query_file_path = QUERY_FILE_PATH
-            
-        if query_file_path.exists():
-            query_file_path.unlink()
-            print(f"DEBUG: Cleared query file {query_file_path}")
-        else:
-            print(f"DEBUG: Query file {query_file_path} does not exist (already clear)")
-        return True
+        # Initialize the LLM - using same model as FixAgent.py
+        llm = ChatOllama(
+            model="qwen2.5vl:7b",
+            base_url=OLLAMA_BASE_URL,
+            temperature=0.3  # Lower temperature for more consistent results
+        )
+        
+        prompt = f"""You are an expert at determining the best type of repair shop to search for based on a problem description.
+
+Given this problem statement: "{problem_statement}"
+
+Generate a specific, accurate search query for finding local repair shops that can handle this type of repair. 
+
+Rules:
+1. Be very specific to the item and problem mentioned
+2. Use common repair shop terminology
+3. Focus on the type of repair shop, not the specific problem
+4. Return ONLY the search query, nothing else
+5. Examples:
+   - "broken photo frame" → "picture frame repair shop"
+   - "cracked iPhone screen" → "phone screen repair shop" 
+   - "leaky faucet" → "plumbing repair shop"
+   - "broken bicycle chain" → "bicycle repair shop"
+   - "watch not working" → "watch repair shop"
+   - "broken laptop keyboard" → "laptop repair shop"
+
+Search query:"""
+
+        # Call the LLM
+        response = llm.invoke(prompt)
+        query = response.content.strip()
+        
+        print(f"DEBUG: LLM generated repair shop query: '{query}'")
+        return query
         
     except Exception as e:
-        print(f"ERROR: Failed to clear query file: {e}")
-        return False
+        print(f"ERROR: LLM call failed: {e}")
+        return None
 
 
 def generate_repair_shop_query(problem_statement: str) -> str:
     """
     Generate a search query for finding local repair shops based on the problem statement
+    Uses LLM to intelligently determine the best repair shop type
     
     Args:
         problem_statement: The extracted problem statement
@@ -146,65 +148,18 @@ def generate_repair_shop_query(problem_statement: str) -> str:
     Returns:
         str: Search query for repair shops
     """
-    # Simple logic to generate repair shop search query
-    problem_lower = problem_statement.lower()
+    print(f"DEBUG: Generating repair shop query for: '{problem_statement}'")
     
-    # Extract device type and create search query
-    if any(word in problem_lower for word in ["phone", "iphone", "android", "smartphone", "mobile"]):
-        if "screen" in problem_lower or "cracked" in problem_lower:
-            return "phone screen repair shop"
-        elif "battery" in problem_lower:
-            return "phone battery repair shop"
-        else:
-            return "phone repair shop"
+    # Try LLM first for intelligent query generation
+    llm_query = call_llm_for_repair_shop_query(problem_statement)
     
-    elif any(word in problem_lower for word in ["laptop", "computer", "pc", "macbook"]):
-        if "screen" in problem_lower or "display" in problem_lower:
-            return "laptop screen repair shop"
-        elif "battery" in problem_lower:
-            return "laptop battery repair shop"
-        elif "keyboard" in problem_lower:
-            return "laptop keyboard repair shop"
-        else:
-            return "laptop repair shop"
+    if llm_query and llm_query.strip():
+        print(f"DEBUG: Using LLM-generated query: '{llm_query}'")
+        return llm_query.strip()
     
-    elif any(word in problem_lower for word in ["car", "vehicle", "automobile", "auto"]):
-        if "battery" in problem_lower:
-            return "car battery repair shop"
-        elif "engine" in problem_lower:
-            return "car engine repair shop"
-        elif "brake" in problem_lower:
-            return "car brake repair shop"
-        else:
-            return "auto repair shop"
-    
-    elif any(word in problem_lower for word in ["tv", "television", "monitor", "display"]):
-        return "TV repair shop"
-    
-    elif any(word in problem_lower for word in ["appliance", "refrigerator", "washer", "dryer"]):
-        return "appliance repair shop"
-    
-    elif any(word in problem_lower for word in ["light", "switch", "electrical", "wiring", "outlet", "socket", "bulb", "lamp", "fixture"]):
-        return "electrical repair shop"
-    
-    elif any(word in problem_lower for word in ["plumbing", "pipe", "faucet", "toilet", "sink", "drain", "leak"]):
-        return "plumbing repair shop"
-    
-    elif any(word in problem_lower for word in ["furniture", "chair", "table", "desk", "cabinet", "wood"]):
-        return "furniture repair shop"
-    
-    elif any(word in problem_lower for word in ["bicycle", "bike", "cycle"]):
-        return "bicycle repair shop"
-    
-    elif any(word in problem_lower for word in ["watch", "clock", "timepiece"]):
-        return "watch repair shop"
-    
-    elif any(word in problem_lower for word in ["jewelry", "ring", "necklace", "bracelet"]):
-        return "jewelry repair shop"
-    
-    else:
-        # Generic repair shop search - but be more specific
-        return "general repair shop"
+    # No fallback logic - if LLM fails, return the original problem statement
+    print(f"DEBUG: LLM failed, using original problem statement as search query")
+    return problem_statement
 
 
 def search_local_repair_shops(
@@ -229,15 +184,29 @@ def search_local_repair_shops(
         Dict with search results and metadata in JSON schema format
     """
     try:
-        # Load query using the new LocalUserStorage system
-        if user_id:
-            # Use the new local user storage system
-            query_data = local_user_storage.get_user_query(user_id)
-            print(f"DEBUG: Retrieved query from LocalUserStorage for user {user_id}")
-        else:
-            # Fallback to old file system for backward compatibility
-            query_data = load_query_from_file()
-            print(f"DEBUG: Retrieved query from legacy file system")
+        # Load query using the LocalUserStorage system (user_id is required)
+        if not user_id:
+            # Return error if no user_id provided
+            json_response = {
+                "title": "Local Repair Shops",
+                "shops": {},
+                "google_maps_links": {},
+                "search_info": "User ID is required for repair shop search",
+                "total_found": 0
+            }
+            content = convert_json_to_text(json_response, ResponseType.LOCAL_REPAIR_SHOPS)
+            return {
+                "success": False,
+                "error": "User ID is required for repair shop search",
+                "places": [],
+                "content": content,
+                "local_repair_links": [],
+                "json_response": json_response
+            }
+        
+        # Use the local user storage system
+        query_data = local_user_storage.get_user_query(user_id)
+        print(f"DEBUG: Retrieved query from LocalUserStorage for user {user_id}")
         
         if not query_data:
             # Return JSON schema format for no query

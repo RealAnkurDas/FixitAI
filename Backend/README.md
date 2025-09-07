@@ -1,8 +1,42 @@
 # FixitAI Backend
-the backend for the FixitAI app
 
-## How it works
+The backend system for FixitAI, a multi-agent repair assistance platform that combines LLM-powered analysis with external data sources to provide comprehensive repair guidance.
 
+## Architecture Overview
+
+The backend consists of three main components:
+
+### 1. **FixAgent.py** - Core Multi-Agent System
+- **LangGraph-based workflow** orchestrating multiple specialized agents
+- **LLM Integration**: Uses Qwen2.5vl:7b and Llama3.1:8b models via Ollama
+- **Agent Types**:
+  - `conversation_node`: Handles user queries and context management
+  - `examine_node`: Analyzes uploaded images using vision models
+  - `search_node`: Coordinates external data source searches
+  - `synthesize_node`: Combines findings into comprehensive repair guidance
+
+### 2. **fixagent_api.py** - FastAPI Web Service
+- **REST API endpoints** for Flutter frontend communication
+- **Key endpoints**:
+  - `/api/chat`: Main conversation endpoint
+  - `/api/upload`: Image upload and analysis
+  - `/api/local-repair`: Local repair shop search
+  - `/api/upcycle-ideas`: Creative upcycling suggestions
+- **User Management**: Firebase Auth integration with user-specific query storage
+
+### 3. **modules/** - Specialized Search Tools
+- **External Data Sources**: Reddit, Medium, WikiHow, iFixit, StackExchange, ManualsLib
+- **Local Services**: Google Maps integration for repair shop discovery
+- **AI Tools**: Tavily search, upcycling idea generation
+- **User Storage**: LocalUserStorage for query persistence
+
+## Data Flow
+
+1. **User Query** → FastAPI endpoint
+2. **Query Processing** → FixAgent workflow
+3. **Multi-Source Search** → External APIs and web scraping
+4. **LLM Analysis** → Context synthesis and repair guidance
+5. **Response Generation** → Structured JSON output to frontend
 
 ## Setup
 1. clone the repo

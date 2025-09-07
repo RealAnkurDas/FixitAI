@@ -144,12 +144,13 @@ def search_medium_advanced(search_query: str, max_articles: int = 10) -> List[Di
     try:
         # Step 1: Use Google PSE to find Medium articles
         load_dotenv()
-        api_key = os.getenv("GOOGLE_PSE_API_KEY")
-        cx = os.getenv("GOOGLE_PSE_CX")
+        # Use Medium-specific API key and CX
+        api_key = os.getenv("GOOGLE_PSE_API_KEY_MEDIUM")
+        cx = os.getenv("GOOGLE_PSE_CX_MEDIUM")
         
         if not api_key or not cx:
-            #print("❌ Google PSE API key or CX not set in environment variables")
-            #print("   Please set GOOGLE_PSE_API_KEY and GOOGLE_PSE_CX in your .env file")
+            #print("❌ Google PSE API key or CX not set for Medium search")
+            #print("   Please set GOOGLE_PSE_API_KEY_MEDIUM and GOOGLE_PSE_CX_MEDIUM in your .env file")
             return []
         
         # Use the search query directly since PSE is configured for Medium only

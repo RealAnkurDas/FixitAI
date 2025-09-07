@@ -30,7 +30,7 @@ def run_connectivity_tests():
     # Test 2: WikiHow Connectivity
     print("\n2️⃣ Testing WikiHow Connectivity...")
     try:
-        from test_wikihow import test_wikihow_connectivity
+        from wikihow_tool import test_wikihow_connectivity
         test_wikihow_connectivity()
         test_results['wikihow'] = True
         print("   ✅ WikiHow test completed successfully")
@@ -41,7 +41,7 @@ def run_connectivity_tests():
     # Test 3: iFixit Connectivity
     print("\n3️⃣ Testing iFixit Connectivity...")
     try:
-        from test_ifixit import test_ifixit_connectivity
+        from ifixit_tool import test_ifixit_connectivity
         test_ifixit_connectivity()
         test_results['ifixit'] = True
         print("   ✅ iFixit test completed successfully")
@@ -52,7 +52,7 @@ def run_connectivity_tests():
     # Test 4: iFixit API (Advanced)
     print("\n4️⃣ Testing iFixit API (Advanced)...")
     try:
-        from test_ifixit_api import test_ifixit_api_connectivity
+        from ifixit_tool import test_ifixit_api_connectivity
         test_ifixit_api_connectivity()
         test_results['ifixit_api'] = True
         print("   ✅ iFixit API test completed successfully")
@@ -63,7 +63,7 @@ def run_connectivity_tests():
     # Test 5: Manualslib Connectivity
     print("\n5️⃣ Testing Manualslib Connectivity...")
     try:
-        from test_manualslib import test_manualslib_connectivity
+        from manualslib_tool import test_manualslib_connectivity
         test_manualslib_connectivity()
         test_results['manualslib'] = True
         print("   ✅ Manualslib test completed successfully")
@@ -151,16 +151,16 @@ def run_specific_test(test_name):
         from test_llm_connectivity import test_llm_connectivity
         test_llm_connectivity()
     elif test_name == 'wikihow':
-        from test_wikihow import test_wikihow_connectivity
+        from wikihow_tool import test_wikihow_connectivity
         test_wikihow_connectivity()
     elif test_name == 'ifixit':
-        from test_ifixit import test_ifixit_connectivity
+        from ifixit_tool import test_ifixit_connectivity
         test_ifixit_connectivity()
     elif test_name == 'ifixit_api':
-        from test_ifixit_api import test_ifixit_api_connectivity
+        from ifixit_tool import test_ifixit_api_connectivity
         test_ifixit_api_connectivity()
     elif test_name == 'manualslib':
-        from test_manualslib import test_manualslib_connectivity
+        from manualslib_tool import test_manualslib_connectivity
         test_manualslib_connectivity()
     elif test_name == 'repair_manuals':
         from test_repair_manuals import test_repair_manuals_connectivity

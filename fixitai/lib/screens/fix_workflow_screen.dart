@@ -1254,9 +1254,28 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
       child: ElevatedButton.icon(
         onPressed: () => _searchLocalRepairShops(),
         icon: const Icon(Icons.store, size: 16),
-        label: const Text('Local Repair Stores'),
+        label: const Text('Local Repair'),
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUpcycleButton() {
+    return Container(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: () => _generateUpcycleIdeas(),
+        icon: const Icon(Icons.recycling, size: 16),
+        label: const Text('Upcycle Ideas'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.orange,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           shape: RoundedRectangleBorder(
@@ -1469,6 +1488,83 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
     }
     
     return tools;
+  }
+
+  Future<void> _generateUpcycleIdeas() async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Text('Generating upcycling ideas...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      // Call the UpcycleIdeasTool API endpoint
+      final requestBody = <String, dynamic>{};
+      
+      // Add user_id if available
+      if (_auth.currentUser?.uid != null) {
+        requestBody['user_id'] = _auth.currentUser!.uid;
+      }
+      
+      print('DEBUG: Sending upcycle ideas request: $requestBody');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/upcycle-ideas'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      // Close loading dialog
+      Navigator.of(context).pop();
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        if (data['success'] == true) {
+          // Add the upcycling ideas as a new message in the chat
+          final upcycleMessage = ChatMessage(
+            message: data['content'] ?? 'No upcycling ideas generated.',
+            isUser: false,
+            responseSource: 'upcycle_ideas',
+          );
+
+          setState(() {
+            messages.add(upcycleMessage);
+            if (currentSession != null) {
+              currentSession!.addMessage(upcycleMessage);
+            }
+          });
+          
+          // Save sessions after adding message
+          _saveSessions();
+          
+          // Scroll to bottom to show the new message
+          _scrollToBottom();
+        } else {
+          // Show error message
+          _addErrorMessage(data['content'] ?? 'Failed to generate upcycling ideas.');
+        }
+      } else {
+        _addErrorMessage('Failed to generate upcycling ideas. Please try again.');
+      }
+    } catch (e) {
+      // Close loading dialog if it's still open
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      _addErrorMessage('Error generating upcycling ideas: $e');
+    }
   }
 
   Future<void> _searchLocalRepairShops() async {
@@ -2088,6 +2184,9 @@ class _FixWorkflowScreenState extends State<FixWorkflowScreen>
                       children: [
                         // Local Repair Stores button
                         Expanded(child: _buildLocalRepairButton()),
+                        const SizedBox(width: 8),
+                        // Upcycle Ideas button
+                        Expanded(child: _buildUpcycleButton()),
                         const SizedBox(width: 8),
                         // Post to Social button
                         Expanded(child: _buildPostButton(message)),

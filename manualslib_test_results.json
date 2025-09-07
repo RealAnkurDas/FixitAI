@@ -1,0 +1,219 @@
+{
+  "IKEA Malm assembly manual": {
+    "search_result": "Manualslib results for 'IKEA Malm assembly manual':\n\nIkeaMALMUser Manual - https://www.manualslib.com/manual/3614867/Ikea-Malm.html\nIkeaMALMUser Manual (32 pages) - https://www.manualslib.com/manual/1168818/Ikea-Malm.html",
+    "manual_count": 2,
+    "manuals": [
+      {
+        "url": "https://www.manualslib.com/manual/3614867/Ikea-Malm.html",
+        "error": "Failed to extract details: HTTPSConnectionPool(host='www.manualslib.com', port=443): Read timed out.",
+        "title": "Unknown",
+        "extracted": false
+      },
+      {
+        "url": "https://www.manualslib.com/manual/1168818/Ikea-Malm.html",
+        "title": "IKEA MALM User Manual",
+        "brand": "IKEA",
+        "model": "IKEA MALM",
+        "category": "Unknown Category",
+        "manual_type": "User Manual",
+        "pages": 32,
+        "file_size": null,
+        "language": "English",
+        "description": "",
+        "specifications": {},
+        "features": [
+          "User manual",
+          "Assembly instructions manual(28 pages)",
+          "pageof32Go/32",
+          "Bookmarks",
+          "Indoor Furnishing IKEA MALM ManualChest (32 pages)",
+          "Indoor Furnishing IKEA MALM Assembly Instructions Manual(28 pages)",
+          "TV Accessories IKEA BESTA BOAS AA-326647-6 Assembly Instructions ManualTv storage unit (28 pages)",
+          "Indoor Furnishing IKEA MALM Manual(24 pages)",
+          "Indoor Furnishing IKEA MALM Manual(16 pages)",
+          "Indoor Furnishing IKEA MALM Manual(12 pages)"
+        ],
+        "download_links": [
+          {
+            "type": "Download",
+            "url": "https://www.manualslib.com/download/1168818/Ikea-Malm.html",
+            "text": "Download"
+          },
+          {
+            "type": "Download",
+            "url": "https://www.manualslib.com/download/1168818/Ikea-Malm.html?print=1",
+            "text": "Print document (32 pages)"
+          }
+        ],
+        "table_of_contents": [],
+        "related_manuals": [
+          {
+            "title": "Indoor Furnishing IKEA MALM Manual",
+            "url": "https://www.manualslib.com/manual/2026985/Ikea-Malm.html"
+          },
+          {
+            "title": "Indoor Furnishing IKEA MALM Assembly Instructions Manual",
+            "url": "https://www.manualslib.com/manual/3550804/Ikea-Malm.html"
+          },
+          {
+            "title": "User manual",
+            "url": "https://www.manualslib.com/manual/1168818/Ikea-Malm.html"
+          },
+          {
+            "title": "User manual",
+            "url": "https://www.manualslib.com/manual/3614867/Ikea-Malm.html"
+          },
+          {
+            "title": "1",
+            "url": "https://www.manualslib.com/manual/1168818/Ikea-Malm.html#manual"
+          }
+        ],
+        "user_rating": null,
+        "tags": []
+      }
+    ]
+  },
+  "Samsung washing machine manual": {
+    "error": "Error searching Manualslib: Exceeded 30 redirects."
+  },
+  "Toyota Camry service manual": {
+    "error": "Error searching Manualslib: Exceeded 30 redirects."
+  },
+  "iPhone 13 user manual": {
+    "search_result": "Manualslib results for 'iPhone 13 user manual':\n\nStarkey Hearing Technologies Made foriPhoneRIC13Operation Manual (30 pages) - https://www.manualslib.com/manual/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html\nStarkey RIC Operation Manual (25 pages) - https://www.manualslib.com/manual/898709/Starkey-Ric.html\nAdjusting Your Hearing System - https://www.manualslib.com/manual/898709/Starkey-Ric.html?page=11#manual",
+    "manual_count": 3,
+    "manuals": [
+      {
+        "url": "https://www.manualslib.com/manual/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html",
+        "title": "Starkey Hearing Technologies Made for iPhone RIC 13 Operation Manual",
+        "brand": "Starkey",
+        "model": "RIC 13",
+        "category": "Electronics",
+        "manual_type": "Manual",
+        "pages": 30,
+        "file_size": null,
+        "language": "English",
+        "description": "",
+        "specifications": {},
+        "features": [
+          "pageof30Go/30",
+          "Contents",
+          "Table of Contents",
+          "Troubleshooting",
+          "Bookmarks",
+          "Hearing Instrument",
+          "Instrument Controls",
+          "Preparation",
+          "Batteries/Battery Indicators",
+          "Insertion and Removal"
+        ],
+        "download_links": [
+          {
+            "type": "Download",
+            "url": "https://www.manualslib.com/download/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html",
+            "text": "Download"
+          },
+          {
+            "type": "Download",
+            "url": "https://www.manualslib.com/download/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html?print=1",
+            "text": "Print document (30 pages)"
+          }
+        ],
+        "table_of_contents": [],
+        "related_manuals": [
+          {
+            "title": "Hearing Aid Starkey Hearing Technologies RIC Operation Manual",
+            "url": "https://www.manualslib.com/manual/1352178/Starkey-Hearing-Technologies-Ric.html"
+          },
+          {
+            "title": "Hearing Aid Starkey Hearing Technologies Rocker Switch BTE 313 Operation Manual",
+            "url": "https://www.manualslib.com/manual/1411291/Starkey-Hearing-Technologies-Rocker-Switch-Bte-313.html"
+          },
+          {
+            "title": "Table of ContentsContents",
+            "url": "https://www.manualslib.com/manual/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html?page=2#manual"
+          },
+          {
+            "title": "Operation manual",
+            "url": "https://www.manualslib.com/manual/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html"
+          },
+          {
+            "title": "1",
+            "url": "https://www.manualslib.com/manual/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html#manual"
+          },
+          {
+            "title": "3",
+            "url": "https://www.manualslib.com/manual/3782122/Starkey-Hearing-Technologies-Made-For-Iphone-Ric-13.html?page=3#manual"
+          }
+        ],
+        "user_rating": null,
+        "tags": []
+      },
+      {
+        "url": "https://www.manualslib.com/manual/898709/Starkey-Ric.html",
+        "title": "Starkey RIC Operation Manual",
+        "brand": "Starkey",
+        "model": "RIC",
+        "category": "Unknown Category",
+        "manual_type": "Manual",
+        "pages": 30,
+        "file_size": null,
+        "language": "English",
+        "description": "",
+        "specifications": {},
+        "features": [
+          "Operation manual(30 pages)",
+          "pageof25Go/25",
+          "Contents",
+          "Table of Contents",
+          "Troubleshooting",
+          "Bookmarks",
+          "OverviewBTE 13 Overview",
+          "BTE 13 Overview",
+          "PreparationBatteries/Battery IndicatorsRIC 13 Insertion and RemovalBTE 13 Insertion and RemovalInstant Fit Earbud or Custom Eartip for BTE",
+          "Batteries/Battery Indicators"
+        ],
+        "download_links": [
+          {
+            "type": "Download",
+            "url": "https://www.manualslib.com/download/898709/Starkey-Ric.html",
+            "text": "Download"
+          },
+          {
+            "type": "Download",
+            "url": "https://www.manualslib.com/download/898709/Starkey-Ric.html?print=1",
+            "text": "Print document (25 pages)"
+          }
+        ],
+        "table_of_contents": [],
+        "related_manuals": [
+          {
+            "title": "Hearing Aid Starkey RIC Operation Manual",
+            "url": "https://www.manualslib.com/manual/864700/Starkey-Ric.html"
+          },
+          {
+            "title": "Hearing Aid Starkey RIC 10 Operation Manual",
+            "url": "https://www.manualslib.com/manual/930997/Starkey-Ric-10.html"
+          },
+          {
+            "title": "Table of ContentsContents",
+            "url": "https://www.manualslib.com/manual/898709/Starkey-Ric.html?page=2#manual"
+          },
+          {
+            "title": "Operation manual",
+            "url": "https://www.manualslib.com/manual/898709/Starkey-Ric.html"
+          },
+          {
+            "title": "1",
+            "url": "https://www.manualslib.com/manual/898709/Starkey-Ric.html#manual"
+          }
+        ],
+        "user_rating": null,
+        "tags": []
+      }
+    ]
+  },
+  "Whirlpool dishwasher manual": {
+    "error": "Error searching Manualslib: Exceeded 30 redirects."
+  }
+}

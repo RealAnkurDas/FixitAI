@@ -22,6 +22,7 @@ class ResponseType(Enum):
     PROBLEM_EXTRACTION = "problem_extraction"
     AGGREGATION = "aggregation"
     LOCAL_REPAIR_SHOPS = "local_repair_shops"
+    UPCYCLE_IDEAS = "upcycle_ideas"
 
 
 @dataclass
@@ -364,6 +365,89 @@ def get_local_repair_shops_schema() -> JSONSchema:
     )
 
 
+def get_upcycle_ideas_schema() -> JSONSchema:
+    """Schema for upcycling ideas responses"""
+    return JSONSchema(
+        response_type=ResponseType.UPCYCLE_IDEAS,
+        schema={
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Title for the upcycling ideas"},
+                "ideas": {
+                    "type": "object",
+                    "description": "Creative upcycling ideas",
+                    "patternProperties": {
+                        "^[0-9]+$": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "description": "Idea title"},
+                                "description": {"type": "string", "description": "Detailed description of the upcycling idea"},
+                                "materials_needed": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Materials needed for this upcycling project"
+                                },
+                                "difficulty": {"type": "string", "description": "Difficulty level (Easy/Medium/Hard)"},
+                                "time_required": {"type": "string", "description": "Estimated time to complete"},
+                                "creative_tips": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Creative tips and variations"
+                                }
+                            },
+                            "required": ["title", "description", "materials_needed", "difficulty", "time_required"]
+                        }
+                    }
+                },
+                "general_tips": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "General upcycling tips and considerations"
+                },
+                "safety_notes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Safety considerations for upcycling projects"
+                }
+            },
+            "required": ["title", "ideas", "general_tips", "safety_notes"]
+        },
+        example={
+            "title": "Creative Upcycling Ideas for broken laptop",
+            "ideas": {
+                "1": {
+                    "title": "Garden Planter Transformation",
+                    "description": "Transform the broken laptop into a unique garden planter. Remove all electronic components, clean thoroughly, and fill with soil and plants for a creative garden feature.",
+                    "materials_needed": ["Screwdriver set", "Potting soil", "Plants or seeds", "Drainage rocks", "Paint (optional)"],
+                    "difficulty": "Easy",
+                    "time_required": "1-2 hours",
+                    "creative_tips": ["Paint the exterior for a personalized look", "Use as a herb garden", "Create a themed planter with decorations"]
+                },
+                "2": {
+                    "title": "Storage Container Makeover",
+                    "description": "Repurpose the laptop case as a stylish storage container. Clean thoroughly, add dividers or compartments, and decorate to match your home decor.",
+                    "materials_needed": ["Sandpaper", "Paint or decorative paper", "Dividers or small containers", "Adhesive", "Handles (optional)"],
+                    "difficulty": "Medium",
+                    "time_required": "2-3 hours",
+                    "creative_tips": ["Add labels for organization", "Use for craft supplies", "Create a themed storage solution"]
+                }
+            },
+            "general_tips": [
+                "Always clean and sanitize items thoroughly before upcycling",
+                "Consider the item's material when choosing upcycling projects",
+                "Think about the item's shape and size for creative possibilities",
+                "Upcycling reduces waste and gives items a second life"
+            ],
+            "safety_notes": [
+                "Wear appropriate safety gear when using tools",
+                "Ensure proper ventilation when using paints or adhesives",
+                "Check for sharp edges and handle carefully",
+                "Consider the weight capacity of wall mounts"
+            ]
+        }
+    )
+
+
 # =============================================================================
 # SCHEMA REGISTRY
 # =============================================================================
@@ -377,7 +461,8 @@ SCHEMA_REGISTRY = {
     ResponseType.DECISION: get_decision_schema(),
     ResponseType.PROBLEM_EXTRACTION: get_problem_extraction_schema(),
     ResponseType.AGGREGATION: get_aggregation_schema(),
-    ResponseType.LOCAL_REPAIR_SHOPS: get_local_repair_shops_schema()
+    ResponseType.LOCAL_REPAIR_SHOPS: get_local_repair_shops_schema(),
+    ResponseType.UPCYCLE_IDEAS: get_upcycle_ideas_schema()
 }
 
 
@@ -501,6 +586,30 @@ def create_fallback_response(response_type: ResponseType, original_text: str) ->
             "title": "Repair Instructions",
             "steps": {"1": "Please try again with a more specific request"},
             "sources": {"1": "https://example.com"}
+        },
+        ResponseType.UPCYCLE_IDEAS: {
+            "title": "Creative Upcycling Ideas",
+            "ideas": {
+                "1": {
+                    "title": "Garden Planter Transformation",
+                    "description": "Transform the broken item into a unique garden planter. Clean and prepare the item, add drainage holes if needed, and fill with soil and plants for a creative garden feature.",
+                    "materials_needed": ["Drill with appropriate bits", "Potting soil", "Plants or seeds", "Drainage rocks", "Paint (optional)"],
+                    "difficulty": "Easy",
+                    "time_required": "1-2 hours",
+                    "creative_tips": ["Paint the exterior for a personalized look", "Use as a herb garden", "Create a themed planter with decorations"]
+                }
+            },
+            "general_tips": [
+                "Always clean and sanitize items thoroughly before upcycling",
+                "Consider the item's material when choosing upcycling projects",
+                "Think about the item's shape and size for creative possibilities",
+                "Upcycling reduces waste and gives items a second life"
+            ],
+            "safety_notes": [
+                "Wear appropriate safety gear when using tools",
+                "Ensure proper ventilation when using paints or adhesives",
+                "Check for sharp edges and handle carefully"
+            ]
         }
     }
     
@@ -525,6 +634,8 @@ def convert_json_to_text(json_data: Dict[str, Any], response_type: ResponseType)
         return convert_repair_plan_to_text(json_data)
     elif response_type == ResponseType.LOCAL_REPAIR_SHOPS:
         return convert_local_repair_shops_to_text(json_data)
+    elif response_type == ResponseType.UPCYCLE_IDEAS:
+        return convert_upcycle_ideas_to_text(json_data)
     else:
         return str(json_data)
 
@@ -613,6 +724,71 @@ def convert_local_repair_shops_to_text(json_data: Dict[str, Any]) -> str:
             lines.append("")  # Empty line between shops
     else:
         lines.append("No repair shops found in your area.")
+    
+    return "\n".join(lines)
+
+
+def convert_upcycle_ideas_to_text(json_data: Dict[str, Any]) -> str:
+    """Convert upcycle ideas JSON to readable text"""
+    lines = []
+    
+    # Title
+    title = json_data.get("title", "Upcycling Ideas")
+    lines.append(f"♻️ {title}")
+    lines.append("")
+    
+    # Ideas
+    ideas = json_data.get("ideas", {})
+    if ideas:
+        for idea_num in sorted(ideas.keys(), key=int):
+            idea = ideas[idea_num]
+            idea_title = idea.get("title", f"Idea {idea_num}")
+            description = idea.get("description", "")
+            materials = idea.get("materials_needed", [])
+            difficulty = idea.get("difficulty", "Unknown")
+            time_required = idea.get("time_required", "Unknown")
+            creative_tips = idea.get("creative_tips", [])
+            
+            lines.append(f"💡 {idea_title}")
+            lines.append(f"   {description}")
+            lines.append("")
+            
+            if materials:
+                lines.append("   Materials needed:")
+                for material in materials:
+                    lines.append(f"   • {material}")
+                lines.append("")
+            
+            lines.append(f"   Difficulty: {difficulty}")
+            lines.append(f"   Time required: {time_required}")
+            lines.append("")
+            
+            if creative_tips:
+                lines.append("   Creative tips:")
+                for tip in creative_tips:
+                    lines.append(f"   • {tip}")
+                lines.append("")
+            
+            lines.append("")
+    else:
+        lines.append("No upcycling ideas available.")
+        lines.append("")
+    
+    # General tips
+    general_tips = json_data.get("general_tips", [])
+    if general_tips:
+        lines.append("💡 General Upcycling Tips:")
+        for tip in general_tips:
+            lines.append(f"• {tip}")
+        lines.append("")
+    
+    # Safety notes
+    safety_notes = json_data.get("safety_notes", [])
+    if safety_notes:
+        lines.append("⚠️ Safety Considerations:")
+        for note in safety_notes:
+            lines.append(f"• {note}")
+        lines.append("")
     
     return "\n".join(lines)
 
