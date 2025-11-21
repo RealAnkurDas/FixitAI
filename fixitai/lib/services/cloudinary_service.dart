@@ -7,8 +7,8 @@ import 'package:cloudinary_public/cloudinary_public.dart';
 class CloudinaryService {
   // Cloudinary credentials
   static const String _cloudName = 'dkvxiysme';
-  static const String _apiKey = '556969932191651';
-  static const String _apiSecret = 'owRuBRyid1krsY5knC6ILqRwQQQ';
+  static const String _apiKey = 'YOUR_API_KEY';
+  static const String _apiSecret = 'YOUR_SECRET';
   
   static final CloudinaryPublic _cloudinary = CloudinaryPublic(
     _cloudName,
